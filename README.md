@@ -35,18 +35,6 @@ coffer run -- node server.js
 
 ## Configuration
 
-### Project Structure
-
-```
-myproject/
-├── .coffer.yaml          # Project configuration
-├── config/
-│   ├── base.yaml         # Base configuration (required)
-│   ├── dev.yaml          # Development overrides
-│   ├── prod.yaml         # Production overrides
-│   └── local.yaml        # Local overrides (gitignored)
-```
-
 ### .coffer.yaml
 
 ```yaml
