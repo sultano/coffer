@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/choreograph/coffer/internal/config"
+	"github.com/sultano/coffer/internal/config"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"

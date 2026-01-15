@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/choreograph/coffer/internal/secrets"
+	"github.com/sultano/coffer/internal/secrets"
 )
 
 // Timeout constants for GCP operations

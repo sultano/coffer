@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/choreograph/coffer/internal/config"
+	"github.com/sultano/coffer/internal/config"
 )
 
 // execTestCmd runs a command and captures stdout/stderr

@@ -7,7 +7,7 @@ Coffer lets you store configuration in version-controlled YAML files while keepi
 ## Installation
 
 ```bash
-go install github.com/choreograph/coffer@latest
+go install github.com/sultano/coffer@latest
 ```
 
 ## Quick Start

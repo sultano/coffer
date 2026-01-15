@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/choreograph/coffer/internal/config"
-	"github.com/choreograph/coffer/internal/resolver"
+	"github.com/sultano/coffer/internal/config"
+	"github.com/sultano/coffer/internal/resolver"
 	"github.com/spf13/cobra"
 )
 

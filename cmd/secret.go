@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/choreograph/coffer/internal/config"
-	"github.com/choreograph/coffer/internal/resolver"
+	"github.com/sultano/coffer/internal/config"
+	"github.com/sultano/coffer/internal/resolver"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/choreograph/coffer/cmd"
+	"github.com/sultano/coffer/cmd"
 	"github.com/fatih/color"
 )
 

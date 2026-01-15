@@ -1,4 +1,4 @@
-module github.com/choreograph/coffer
+module github.com/sultano/coffer
 
 go 1.24.0
 

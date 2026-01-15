@@ -9,7 +9,7 @@ import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/api/iterator"
 
-	"github.com/choreograph/coffer/internal/resolver"
+	"github.com/sultano/coffer/internal/resolver"
 )
 
 // GCPClient implements resolver.SecretProvider using GCP Secret Manager
