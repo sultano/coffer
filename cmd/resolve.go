@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/spf13/cobra"
 	"github.com/sultano/coffer/internal/config"
 	"github.com/sultano/coffer/internal/resolver"
-	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 

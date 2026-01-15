@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/spf13/cobra"
 	"github.com/sultano/coffer/internal/config"
 	"github.com/sultano/coffer/internal/resolver"
-	"github.com/spf13/cobra"
 )
 
 var getCmd = &cobra.Command{

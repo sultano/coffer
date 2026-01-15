@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/sultano/coffer/cmd"
 	"github.com/fatih/color"
+	"github.com/sultano/coffer/cmd"
 )
 
 func main() {

@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sultano/coffer/internal/config"
-	"github.com/sultano/coffer/internal/resolver"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"github.com/sultano/coffer/internal/config"
+	"github.com/sultano/coffer/internal/resolver"
 )
 
 var secretCmd = &cobra.Command{

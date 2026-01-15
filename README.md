@@ -182,6 +182,19 @@ Required IAM roles:
 - `roles/secretmanager.secretAccessor` - Read secrets
 - `roles/secretmanager.admin` - Create/delete secrets (optional)
 
+## Development
+
+```bash
+# Clone and setup (installs git hooks)
+git clone git@github.com:sultano/coffer.git
+cd coffer
+make setup
+
+# Build and test
+make build
+make test
+```
+
 ## Best Practices
 
 1. **Add `local.yaml` to `.gitignore`** - Local overrides shouldn't be committed

@@ -1,0 +1,11 @@
+#!/bin/sh
+
+echo "Running pre-push checks..."
+
+# Run tests
+if ! go test ./... 2>&1; then
+    echo "Error: Tests failed"
+    exit 1
+fi
+
+echo "Pre-push checks passed"

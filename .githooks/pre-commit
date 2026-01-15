@@ -1,0 +1,21 @@
+#!/bin/sh
+
+echo "Running pre-commit checks..."
+
+# Auto-format and stage any changes
+gofmt -w .
+git add -u
+
+# Run go vet
+if ! go vet ./... 2>&1; then
+    echo "Error: go vet failed"
+    exit 1
+fi
+
+# Ensure it builds
+if ! go build ./... 2>&1; then
+    echo "Error: Build failed"
+    exit 1
+fi
+
+echo "Pre-commit checks passed"
