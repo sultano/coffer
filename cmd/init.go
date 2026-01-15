@@ -217,13 +217,19 @@ func updateGitignore(path string, entries []string) error {
 	if fileExists(path) {
 		data, _ := os.ReadFile(path)
 		if len(data) > 0 && data[len(data)-1] != '\n' {
-			f.WriteString("\n")
+			if _, err := f.WriteString("\n"); err != nil {
+				return err
+			}
 		}
 	}
 
-	f.WriteString("\n# Coffer local files\n")
+	if _, err := f.WriteString("\n# Coffer local files\n"); err != nil {
+		return err
+	}
 	for _, entry := range toAdd {
-		f.WriteString(entry + "\n")
+		if _, err := f.WriteString(entry + "\n"); err != nil {
+			return err
+		}
 	}
 
 	return nil

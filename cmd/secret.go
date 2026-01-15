@@ -77,7 +77,6 @@ Example:
 
 var fromFile string
 var yesFlag bool
-var importPrefix string
 
 func init() {
 	rootCmd.AddCommand(secretCmd)

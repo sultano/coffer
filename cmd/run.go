@@ -175,7 +175,7 @@ func executeCommand(cmdArgs []string, envVars map[string]string) error {
 	go func() {
 		for sig := range sigChan {
 			if command.Process != nil {
-				command.Process.Signal(sig)
+				_ = command.Process.Signal(sig)
 			}
 		}
 	}()

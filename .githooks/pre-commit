@@ -6,10 +6,18 @@ echo "Running pre-commit checks..."
 gofmt -w .
 git add -u
 
-# Run go vet
-if ! go vet ./... 2>&1; then
-    echo "Error: go vet failed"
-    exit 1
+# Run golangci-lint if available, otherwise fall back to go vet
+if command -v golangci-lint >/dev/null 2>&1; then
+    if ! golangci-lint run 2>&1; then
+        echo "Error: golangci-lint failed"
+        exit 1
+    fi
+else
+    echo "Warning: golangci-lint not installed, using go vet"
+    if ! go vet ./... 2>&1; then
+        echo "Error: go vet failed"
+        exit 1
+    fi
 fi
 
 # Ensure it builds
