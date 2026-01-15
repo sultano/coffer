@@ -1,0 +1,13 @@
+# Development environment overrides
+
+app:
+  log_level: debug
+
+database:
+  host: localhost
+
+redis:
+  host: localhost
+
+features:
+  enable_metrics: false

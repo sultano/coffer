@@ -1,0 +1,27 @@
+# Base configuration - shared across all environments
+# Override in environment-specific files (dev.yaml, prod.yaml, etc.)
+
+app:
+  name: myservice
+  log_level: info
+  port: 8080
+
+database:
+  host: localhost
+  port: 5432
+  name: myapp
+  user: ${secret:db-user}           # Resolved from GCP Secret Manager
+  password: ${secret:db-password}   # Resolved from GCP Secret Manager
+
+redis:
+  host: localhost
+  port: 6379
+
+features:
+  enable_cache: true
+  enable_metrics: true
+
+# Example of an API key secret
+api:
+  endpoint: https://api.example.com
+  key: ${secret:api-key}

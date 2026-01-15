@@ -1,0 +1,10 @@
+# Production environment overrides
+
+app:
+  log_level: warn
+
+database:
+  host: prod-db.internal
+
+redis:
+  host: prod-redis.internal

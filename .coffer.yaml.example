@@ -1,0 +1,39 @@
+version: 1
+
+config:
+  path: ./config           # Where config files live
+  base: base.yaml          # Base config file name
+
+# Default GCP project (fallback if not specified per-env)
+gcp:
+  project: mycompany-dev
+
+# Per-environment GCP projects (for isolation)
+environments:
+  dev:
+    gcp:
+      project: mycompany-dev
+  staging:
+    gcp:
+      project: mycompany-staging
+  prod:
+    gcp:
+      project: mycompany-prod
+
+# Explicit env var naming (optional)
+# Keys not listed use auto-conversion: database.host -> DATABASE_HOST
+env_mapping:
+  database.host: DB_HOST
+  database.port: DB_PORT
+  database.password: DB_PASS
+  api.key: API_KEY
+
+# Default environment when --env not specified
+defaults:
+  env: dev
+
+# Cache settings (optional)
+# cache:
+#   enabled: true
+#   ttl: 5m
+#   path: ~/.coffer/cache

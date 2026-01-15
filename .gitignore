@@ -1,0 +1,30 @@
+# Binary
+coffer
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coffer local files
+config/local.yaml
+.env.local
+
+# Examples local files (for testing)
+examples/config/local.yaml

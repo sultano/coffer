@@ -1,0 +1,32 @@
+version: 1
+
+config:
+  path: ./config
+  base: base.yaml
+
+gcp:
+  project: example-project-dev
+
+environments:
+  dev:
+    gcp:
+      project: example-project-dev
+  staging:
+    gcp:
+      project: example-project-staging
+  prod:
+    gcp:
+      project: example-project-prod
+
+env_mapping:
+  database.host: DB_HOST
+  database.port: DB_PORT
+  database.name: DB_NAME
+  database.user: DB_USER
+  database.password: DB_PASSWORD
+  redis.host: REDIS_HOST
+  redis.port: REDIS_PORT
+  api.key: API_KEY
+
+defaults:
+  env: dev
