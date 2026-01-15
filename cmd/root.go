@@ -66,8 +66,3 @@ func getProjectRoot() (string, error) {
 	}
 	return os.Getwd()
 }
-
-func exitWithError(err error, code int) {
-	color.Red("Error: %s", err.Error())
-	os.Exit(code)
-}

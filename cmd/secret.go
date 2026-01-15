@@ -2,15 +2,12 @@ package cmd
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/choreograph/coffer/internal/config"
 	"github.com/choreograph/coffer/internal/resolver"
-	"github.com/choreograph/coffer/internal/secrets"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -115,16 +112,13 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 
 	secretPrefix := loaded.GetSecretPrefix()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client, err := secrets.New(ctx)
+	gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer gcpResult.Close()
 
-	secretsList, err := client.ListSecrets(ctx, gcpProject)
+	secretsList, err := gcpResult.Client.ListSecrets(ctx, gcpProject)
 	if err != nil {
 		return err
 	}
@@ -214,14 +208,11 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 
 	secretPrefix := loaded.GetSecretPrefix()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client, err := secrets.New(ctx)
+	gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer gcpResult.Close()
 
 	ref := resolver.ParseSecretRef(secretName)
 	// Apply prefix to non-full-path references
@@ -229,7 +220,7 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 		ref.Name = secretPrefix + ref.Name
 	}
 
-	value, err := client.GetSecret(ctx, ref, gcpProject)
+	value, err := gcpResult.Client.GetSecret(ctx, ref, gcpProject)
 	if err != nil {
 		return err
 	}
@@ -294,16 +285,13 @@ func runSecretSet(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client, err := secrets.New(ctx)
+	gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer gcpResult.Close()
 
-	if err := client.SetSecret(ctx, gcpProject, fullSecretName, value); err != nil {
+	if err := gcpResult.Client.SetSecret(ctx, gcpProject, fullSecretName, value); err != nil {
 		return err
 	}
 
@@ -348,16 +336,13 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client, err := secrets.New(ctx)
+	gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer gcpResult.Close()
 
-	if err := client.DeleteSecret(ctx, gcpProject, fullSecretName); err != nil {
+	if err := gcpResult.Client.DeleteSecret(ctx, gcpProject, fullSecretName); err != nil {
 		return err
 	}
 
@@ -390,16 +375,13 @@ func runSecretUnused(cmd *cobra.Command, args []string) error {
 	referencedSecrets := collectReferencedSecrets(projectRoot, project, secretPrefix)
 
 	// List secrets from GCP
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client, err := secrets.New(ctx)
+	gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer gcpResult.Close()
 
-	secretsList, err := client.ListSecrets(ctx, gcpProject)
+	secretsList, err := gcpResult.Client.ListSecrets(ctx, gcpProject)
 	if err != nil {
 		return err
 	}
@@ -532,15 +514,12 @@ func runSecretImport(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Actually import
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	client, err := secrets.New(ctx)
+	// Actually import - use longer timeout for batch operations
+	gcpResult, ctx, err := newGCPClient(LongGCPTimeout)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer gcpResult.Close()
 
 	var imported, failed int
 	for _, entry := range entries {
@@ -550,7 +529,7 @@ func runSecretImport(cmd *cobra.Command, args []string) error {
 			fullName = secretPrefix + secretName
 		}
 
-		if err := client.SetSecret(ctx, gcpProject, fullName, entry.value); err != nil {
+		if err := gcpResult.Client.SetSecret(ctx, gcpProject, fullName, entry.value); err != nil {
 			color.Red("✗ Failed to import %s: %v", entry.key, err)
 			failed++
 		} else {

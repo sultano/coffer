@@ -41,7 +41,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Check if already initialized
 	cofferPath := filepath.Join(projectRoot, ".coffer.yaml")
-	if fileExistsAt(cofferPath) {
+	if fileExists(cofferPath) {
 		yellow.Println("Project already initialized (.coffer.yaml exists)")
 		return nil
 	}
@@ -120,7 +120,7 @@ defaults:
 
 	// Create base.yaml
 	basePath := filepath.Join(configDir, "base.yaml")
-	if !fileExistsAt(basePath) {
+	if !fileExists(basePath) {
 		baseContent := `# Base configuration - shared across all environments
 # Override in environment-specific files (dev.yaml, prod.yaml, etc.)
 
@@ -142,7 +142,7 @@ app:
 
 	// Create dev.yaml
 	devPath := filepath.Join(configDir, "dev.yaml")
-	if !fileExistsAt(devPath) {
+	if !fileExists(devPath) {
 		devContent := `# Development environment overrides
 app:
   log_level: debug
@@ -179,16 +179,11 @@ app:
 	return nil
 }
 
-func fileExistsAt(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 func updateGitignore(path string, entries []string) error {
 	existing := make(map[string]bool)
 
 	// Read existing .gitignore
-	if fileExistsAt(path) {
+	if fileExists(path) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
@@ -219,7 +214,7 @@ func updateGitignore(path string, entries []string) error {
 	defer f.Close()
 
 	// Add newline if file doesn't end with one
-	if fileExistsAt(path) {
+	if fileExists(path) {
 		data, _ := os.ReadFile(path)
 		if len(data) > 0 && data[len(data)-1] != '\n' {
 			f.WriteString("\n")

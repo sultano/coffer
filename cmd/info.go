@@ -1,13 +1,10 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
-	"time"
 
-	"cloud.google.com/go/secretmanager/apiv1"
 	"github.com/choreograph/coffer/internal/config"
 	"github.com/choreograph/coffer/internal/resolver"
 	"github.com/fatih/color"
@@ -61,16 +58,13 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	} else {
 		green.Printf("  GCP: %s\n", account)
 
-		// Check Secret Manager access
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		client, err := secretmanager.NewClient(ctx)
-		if err != nil {
+		// Check Secret Manager access with quick timeout
+		gcpResult, _, gcpErr := newGCPClient(QuickGCPTimeout)
+		if gcpErr != nil {
 			yellow.Printf("  Secret Manager: connection failed\n")
 		} else {
 			green.Printf("  Secret Manager: accessible\n")
-			client.Close()
+			gcpResult.Close()
 		}
 	}
 	fmt.Println()
@@ -98,7 +92,7 @@ func runInfo(cmd *cobra.Command, args []string) error {
 
 			// Check if env file exists
 			envFile := filepath.Join(projectRoot, project.Config.Path, env+".yaml")
-			if fileExistsAt(envFile) {
+			if fileExists(envFile) {
 				fmt.Printf("    Config: %s.yaml\n", env)
 			}
 		}
@@ -109,14 +103,14 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	bold.Println("Config Files")
 	configDir := filepath.Join(projectRoot, project.Config.Path)
 	baseFile := filepath.Join(configDir, project.Config.Base)
-	if fileExistsAt(baseFile) {
+	if fileExists(baseFile) {
 		green.Printf("  ✓ %s\n", project.Config.Base)
 	} else {
 		red.Printf("  ✗ %s (missing)\n", project.Config.Base)
 	}
 
 	localFile := filepath.Join(configDir, "local.yaml")
-	if fileExistsAt(localFile) {
+	if fileExists(localFile) {
 		green.Printf("  ✓ local.yaml (local overrides)\n")
 	}
 	fmt.Println()

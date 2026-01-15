@@ -1,5 +1,7 @@
 package config
 
+import "strconv"
+
 // DeepMerge merges src into dst recursively.
 // Values in src override values in dst.
 // Maps are merged recursively; other types are replaced.
@@ -69,102 +71,16 @@ func toString(v any) string {
 	case string:
 		return val
 	case int:
-		return intToString(val)
+		return strconv.Itoa(val)
 	case int64:
-		return int64ToString(val)
+		return strconv.FormatInt(val, 10)
 	case float64:
-		return float64ToString(val)
+		return strconv.FormatFloat(val, 'f', -1, 64)
 	case bool:
-		if val {
-			return "true"
-		}
-		return "false"
+		return strconv.FormatBool(val)
 	case nil:
 		return ""
 	default:
 		return ""
 	}
-}
-
-func intToString(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
-}
-
-func int64ToString(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
-}
-
-func float64ToString(f float64) string {
-	// Simple implementation - handles common cases
-	// For production, consider using strconv.FormatFloat
-	if f == float64(int64(f)) {
-		return int64ToString(int64(f))
-	}
-	// For non-integers, use basic formatting
-	// This is a simplified version - full implementation would use strconv
-	return floatFormat(f)
-}
-
-func floatFormat(f float64) string {
-	neg := f < 0
-	if neg {
-		f = -f
-	}
-
-	intPart := int64(f)
-	fracPart := f - float64(intPart)
-
-	result := int64ToString(intPart)
-
-	if fracPart > 0 {
-		result += "."
-		// Up to 6 decimal places
-		for i := 0; i < 6 && fracPart > 0.0000001; i++ {
-			fracPart *= 10
-			digit := int(fracPart)
-			result += string(byte('0' + digit))
-			fracPart -= float64(digit)
-		}
-	}
-
-	if neg {
-		return "-" + result
-	}
-	return result
 }

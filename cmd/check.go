@@ -1,14 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/choreograph/coffer/internal/config"
 	"github.com/choreograph/coffer/internal/resolver"
-	"github.com/choreograph/coffer/internal/secrets"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -77,14 +74,11 @@ func checkEnvironment(projectRoot string, project *config.ProjectConfig, env str
 		return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client, err := secrets.New(ctx)
+	gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
 	if err != nil {
-		return fmt.Errorf("failed to connect to GCP: %w", err)
+		return err
 	}
-	defer client.Close()
+	defer gcpResult.Close()
 
 	// Check each secret
 	secretPrefix := loaded.GetSecretPrefix()
@@ -96,7 +90,7 @@ func checkEnvironment(projectRoot string, project *config.ProjectConfig, env str
 			fullName = secretPrefix + ref.Name
 		}
 
-		exists, err := client.SecretExists(ctx, gcpProject, fullName)
+		exists, err := gcpResult.Client.SecretExists(ctx, gcpProject, fullName)
 		if err != nil {
 			red.Printf("✗ %s - error: %v\n", ref.Name, err)
 			missing = append(missing, ref.Name)
@@ -159,14 +153,12 @@ func checkAllEnvironments(projectRoot string, project *config.ProjectConfig) err
 	}
 	secretsByName := make(map[string][]secretStatus)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	client, err := secrets.New(ctx)
+	// Use longer timeout for checking all environments
+	gcpResult, ctx, err := newGCPClient(LongGCPTimeout)
 	if err != nil {
-		return fmt.Errorf("failed to connect to GCP: %w", err)
+		return err
 	}
-	defer client.Close()
+	defer gcpResult.Close()
 
 	for _, env := range envs {
 		loaded, err := config.Load(projectRoot, env)
@@ -187,7 +179,7 @@ func checkAllEnvironments(projectRoot string, project *config.ProjectConfig) err
 				fullName = secretPrefix + ref.Name
 			}
 
-			exists, checkErr := client.SecretExists(ctx, gcpProject, fullName)
+			exists, checkErr := gcpResult.Client.SecretExists(ctx, gcpProject, fullName)
 			secretsByName[ref.Name] = append(secretsByName[ref.Name], secretStatus{
 				env:    env,
 				exists: exists,
@@ -211,24 +203,18 @@ func checkAllEnvironments(projectRoot string, project *config.ProjectConfig) err
 		statuses := secretsByName[name]
 		fmt.Printf("  %-20s", name)
 
-		hasIssue := false
 		for _, status := range statuses {
 			if status.err != nil {
 				red.Printf(" ✗ %s", status.env)
-				hasIssue = true
+				issues = append(issues, fmt.Sprintf("%s error in %s: %v", name, status.env, status.err))
 			} else if status.exists {
 				green.Printf(" ✓ %s", status.env)
 			} else {
 				red.Printf(" ✗ %s", status.env)
-				hasIssue = true
 				issues = append(issues, fmt.Sprintf("%s missing in %s", name, status.env))
 			}
 		}
 		fmt.Println()
-
-		if hasIssue {
-			issues = append(issues, name)
-		}
 	}
 
 	fmt.Println()

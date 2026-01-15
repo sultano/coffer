@@ -1,15 +1,12 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/choreograph/coffer/internal/config"
 	"github.com/choreograph/coffer/internal/resolver"
-	"github.com/choreograph/coffer/internal/secrets"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -56,17 +53,14 @@ func runResolve(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		client, err := secrets.New(ctx)
+		gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
 		if err != nil {
-			return fmt.Errorf("failed to connect to GCP: %w", err)
+			return err
 		}
-		defer client.Close()
+		defer gcpResult.Close()
 
 		secretPrefix := loaded.GetSecretPrefix()
-		r := resolver.New(client, gcpProject, secretPrefix)
+		r := resolver.New(gcpResult.Client, gcpProject, secretPrefix)
 		resolved, err = r.ResolveAll(ctx, flat)
 		if err != nil {
 			return err
@@ -122,44 +116,7 @@ func outputDotenv(envVars map[string]string) error {
 
 	for _, k := range keys {
 		v := envVars[k]
-		fmt.Printf("%s=%s\n", k, quoteForDotenv(v))
+		fmt.Printf("%s=%s\n", k, config.QuoteForDotenv(v))
 	}
 	return nil
-}
-
-func quoteForDotenv(value string) string {
-	needsQuotes := false
-	for _, r := range value {
-		if r == ' ' || r == '\n' || r == '\t' || r == '"' || r == '\'' || r == '$' || r == '`' || r == '\\' || r == '#' {
-			needsQuotes = true
-			break
-		}
-	}
-
-	if !needsQuotes {
-		return value
-	}
-
-	// Escape and quote
-	result := "\""
-	for _, r := range value {
-		switch r {
-		case '"':
-			result += "\\\""
-		case '\\':
-			result += "\\\\"
-		case '\n':
-			result += "\\n"
-		case '\t':
-			result += "\\t"
-		case '$':
-			result += "\\$"
-		case '`':
-			result += "\\`"
-		default:
-			result += string(r)
-		}
-	}
-	result += "\""
-	return result
 }

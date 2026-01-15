@@ -68,17 +68,17 @@ func FormatAsDotenv(envVars map[string]string) string {
 	for key, value := range envVars {
 		sb.WriteString(key)
 		sb.WriteString("=")
-		sb.WriteString(quoteIfNeeded(value))
+		sb.WriteString(QuoteForDotenv(value))
 		sb.WriteString("\n")
 	}
 	return sb.String()
 }
 
-// quoteIfNeeded wraps value in quotes if it contains special characters
-func quoteIfNeeded(value string) string {
+// QuoteForDotenv wraps value in quotes if it contains special characters
+func QuoteForDotenv(value string) string {
 	needsQuotes := false
 	for _, r := range value {
-		if r == ' ' || r == '\n' || r == '\t' || r == '"' || r == '\'' || r == '$' || r == '`' || r == '\\' {
+		if r == ' ' || r == '\n' || r == '\t' || r == '"' || r == '\'' || r == '$' || r == '`' || r == '\\' || r == '#' {
 			needsQuotes = true
 			break
 		}

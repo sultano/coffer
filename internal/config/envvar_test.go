@@ -54,7 +54,7 @@ func TestToEnvVars(t *testing.T) {
 	}
 }
 
-func TestQuoteIfNeeded(t *testing.T) {
+func TestQuoteForDotenv(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected string
@@ -64,13 +64,14 @@ func TestQuoteIfNeeded(t *testing.T) {
 		{"with\nnewline", "\"with\\nnewline\""},
 		{"with$dollar", "\"with\\$dollar\""},
 		{"with\"quote", "\"with\\\"quote\""},
+		{"with#hash", "\"with#hash\""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := quoteIfNeeded(tt.input)
+			result := QuoteForDotenv(tt.input)
 			if result != tt.expected {
-				t.Errorf("quoteIfNeeded(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("QuoteForDotenv(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}

@@ -1,18 +1,15 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"sort"
 	"syscall"
-	"time"
 
 	"github.com/choreograph/coffer/internal/config"
 	"github.com/choreograph/coffer/internal/resolver"
-	"github.com/choreograph/coffer/internal/secrets"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -66,17 +63,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		client, err := secrets.New(ctx)
+		gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
 		if err != nil {
-			return fmt.Errorf("failed to connect to GCP: %w", err)
+			return err
 		}
-		defer client.Close()
+		defer gcpResult.Close()
 
 		secretPrefix := loaded.GetSecretPrefix()
-		r := resolver.New(client, gcpProject, secretPrefix)
+		r := resolver.New(gcpResult.Client, gcpProject, secretPrefix)
 		resolved, err = r.ResolveAll(ctx, flat)
 		if err != nil {
 			return err

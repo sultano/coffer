@@ -3,9 +3,12 @@ package secrets
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"google.golang.org/api/iterator"
+
 	"github.com/choreograph/coffer/internal/resolver"
 )
 
@@ -72,7 +75,7 @@ func buildSecretPath(ref resolver.SecretRef, gcpProject string) string {
 }
 
 func containsVersion(path string) bool {
-	return len(path) > 0 && path[len(path)-1] != '/'
+	return strings.Contains(path, "/versions/")
 }
 
 // ListSecrets lists all secrets in a GCP project
@@ -86,8 +89,11 @@ func (c *GCPClient) ListSecrets(ctx context.Context, gcpProject string) ([]strin
 
 	for {
 		secret, err := iter.Next()
-		if err != nil {
+		if err == iterator.Done {
 			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to list secrets: %w", err)
 		}
 		secrets = append(secrets, secret.Name)
 	}
@@ -189,22 +195,17 @@ func (c *GCPClient) SecretExists(ctx context.Context, gcpProject, secretName str
 }
 
 func isNotFoundError(err error) bool {
-	return err != nil && (contains(err.Error(), "NotFound") || contains(err.Error(), "not found"))
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "NotFound") || strings.Contains(msg, "not found")
 }
 
 func isPermissionError(err error) bool {
-	return err != nil && (contains(err.Error(), "PermissionDenied") || contains(err.Error(), "permission denied") || contains(err.Error(), "403"))
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+	if err == nil {
+		return false
 	}
-	return false
+	msg := err.Error()
+	return strings.Contains(msg, "PermissionDenied") || strings.Contains(msg, "permission denied") || strings.Contains(msg, "403")
 }
