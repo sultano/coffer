@@ -15,8 +15,9 @@ type SecretRef struct {
 	IsFullPath bool   // True if FullPath was explicitly specified
 }
 
-// secretRefPattern matches ${secret:name} or ${secret:name@version}
-// Also matches ${secret:projects/x/secrets/name} for cross-project refs
+// BEHAVIOR: Pattern must match ${secret:...} syntax exactly
+// Supports: ${secret:name}, ${secret:name@version}, ${secret:projects/x/secrets/name}
+// The capture group extracts everything between "secret:" and "}"
 var secretRefPattern = regexp.MustCompile(`\$\{secret:([^}]+)\}`)
 
 // SecretProvider fetches secret values by name
@@ -92,6 +93,13 @@ func ContainsSecretRef(value string) bool {
 }
 
 // ParseSecretRef parses a secret reference string
+// BEHAVIOR: Must handle three formats:
+//  1. Simple: "secret-name" -> Name="secret-name", Version="latest"
+//  2. Versioned: "secret-name@2" -> Name="secret-name", Version="2"
+//  3. Full path: "projects/x/secrets/y" -> IsFullPath=true, FullPath set
+//
+// BEHAVIOR: Full paths take precedence - if starts with "projects/", treat as full path
+// BEHAVIOR: Default version is "latest" when not specified
 func ParseSecretRef(refStr string) SecretRef {
 	ref := SecretRef{}
 

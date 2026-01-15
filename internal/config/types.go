@@ -2,13 +2,12 @@ package config
 
 // ProjectConfig represents the .coffer.yaml file
 type ProjectConfig struct {
-	Version      int                       `yaml:"version"`
-	Config       ConfigSection             `yaml:"config"`
-	GCP          GCPConfig                 `yaml:"gcp"`
-	Environments map[string]EnvConfig      `yaml:"environments"`
-	EnvMapping   map[string]string         `yaml:"env_mapping"`
-	Defaults     DefaultsConfig            `yaml:"defaults"`
-	Cache        CacheConfig               `yaml:"cache"`
+	Version      int                  `yaml:"version"`
+	Config       ConfigSection        `yaml:"config"`
+	GCP          GCPConfig            `yaml:"gcp"`
+	Environments map[string]EnvConfig `yaml:"environments"`
+	EnvMapping   map[string]string    `yaml:"env_mapping"`
+	Defaults     DefaultsConfig       `yaml:"defaults"`
 }
 
 type ConfigSection struct {
@@ -31,12 +30,6 @@ type EnvConfig struct {
 
 type DefaultsConfig struct {
 	Env string `yaml:"env"`
-}
-
-type CacheConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	TTL     string `yaml:"ttl"`
-	Path    string `yaml:"path"`
 }
 
 // LoadedConfig holds the merged configuration with metadata

@@ -43,7 +43,10 @@ func LoadProject(projectRoot string) (*ProjectConfig, error) {
 }
 
 // Load loads and merges configuration for the specified environment
-// Resolution order: base.yaml -> env.yaml -> local.yaml
+// BEHAVIOR: Config files are merged in strict order: base.yaml -> {env}.yaml -> local.yaml
+// BEHAVIOR: Later files override earlier files (local.yaml has highest priority)
+// BEHAVIOR: Environment file is optional if env is defined in .coffer.yaml environments
+// BEHAVIOR: local.yaml is always optional and intended for developer overrides
 func Load(projectRoot, environment string) (*LoadedConfig, error) {
 	project, err := LoadProject(projectRoot)
 	if err != nil {
@@ -139,6 +142,8 @@ func fileExists(path string) bool {
 }
 
 // GetGCPProject returns the GCP project for the given environment
+// BEHAVIOR: Environment-specific GCP project takes precedence over default
+// BEHAVIOR: Falls back to gcp.project if no environment-specific project defined
 func (lc *LoadedConfig) GetGCPProject() string {
 	// Check environment-specific GCP project first
 	if envCfg, ok := lc.Project.Environments[lc.Environment]; ok {

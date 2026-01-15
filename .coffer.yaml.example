@@ -31,9 +31,3 @@ env_mapping:
 # Default environment when --env not specified
 defaults:
   env: dev
-
-# Cache settings (optional)
-# cache:
-#   enabled: true
-#   ttl: 5m
-#   path: ~/.coffer/cache

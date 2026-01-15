@@ -5,6 +5,9 @@ import "strconv"
 // DeepMerge merges src into dst recursively.
 // Values in src override values in dst.
 // Maps are merged recursively; other types are replaced.
+// BEHAVIOR: src values always override dst for non-map types
+// BEHAVIOR: When both values are maps, merge recursively (preserves nested dst keys not in src)
+// BEHAVIOR: Returns new map - does not mutate dst or src
 func DeepMerge(dst, src map[string]any) map[string]any {
 	result := make(map[string]any)
 
@@ -37,6 +40,9 @@ func DeepMerge(dst, src map[string]any) map[string]any {
 
 // Flatten converts nested config to flat key-value pairs using dot notation
 // e.g., {"database": {"host": "localhost"}} -> {"database.host": "localhost"}
+// BEHAVIOR: Nested keys are joined with "." separator
+// BEHAVIOR: Non-string primitives (int, float, bool) are converted to string
+// BEHAVIOR: nil values become empty strings
 func Flatten(m map[string]any) map[string]string {
 	result := make(map[string]string)
 	flattenRecursive(m, "", result)

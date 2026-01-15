@@ -54,6 +54,9 @@ func (c *GCPClient) GetSecret(ctx context.Context, ref resolver.SecretRef, gcpPr
 }
 
 // buildSecretPath constructs the full GCP Secret Manager path
+// BEHAVIOR: Full paths (IsFullPath=true) are used as-is, with version appended if missing
+// BEHAVIOR: Simple refs are expanded to projects/{project}/secrets/{name}/versions/{version}
+// BEHAVIOR: Default version is "latest" when not specified
 func buildSecretPath(ref resolver.SecretRef, gcpProject string) string {
 	if ref.IsFullPath {
 		path := ref.FullPath
