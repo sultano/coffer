@@ -10,23 +10,48 @@ Coffer lets you store configuration in version-controlled YAML files while keepi
 go install github.com/sultano/coffer@latest
 ```
 
+## Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `coffer init` | Initialize a new project |
+| `coffer run -- <cmd>` | Run a command with config injected as env vars |
+| `coffer resolve` | Output resolved config (JSON, YAML, or dotenv) |
+| `coffer get <key>` | Get a single config value |
+| `coffer check` | Validate all secrets exist in GCP |
+| `coffer validate` | Validate config file syntax |
+| `coffer info` | Show project configuration and status |
+| `coffer secret list` | List secrets in GCP Secret Manager |
+| `coffer secret get <name>` | Get a secret value |
+| `coffer secret set <name>` | Create or update a secret |
+| `coffer secret delete <name>` | Delete a secret |
+| `coffer secret unused` | Find unreferenced secrets |
+| `coffer secret import <file>` | Import secrets from a .env file |
+| `coffer auth status` | Check GCP authentication status |
+| `coffer auth login` | Authenticate to GCP |
+| `coffer version` | Print version information |
+
+### Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `-e, --env <name>` | Environment name (dev, staging, prod) |
+| `-p, --project <path>` | Path to project directory |
+| `--dry-run` | Preview changes without applying |
+| `--no-color` | Disable colored output |
+
 ## Quick Start
 
 ```bash
 # Initialize a new project
 coffer init --gcp-project my-gcp-project
 
-# Create your config
-cat > config/base.yaml << 'EOF'
-app:
-  name: myapp
-  port: 8080
-database:
+# Add a secret reference to your config
+echo 'database:
   host: localhost
-  password: ${secret:db-password}
-EOF
+  password: ${secret:db-password}' >> config/base.yaml
 
-# Set a secret
+# Set the secret in GCP
 coffer secret set db-password "supersecret"
 
 # Run your app with config injected
@@ -41,12 +66,12 @@ coffer run -- node server.js
 version: 1
 
 config:
-  path: ./config          # Config directory (default: ./config)
-  base: base.yaml         # Base config file (default: base.yaml)
+  path: ./config
+  base: base.yaml
 
 gcp:
   project: my-gcp-project
-  secret_prefix: myapp-   # Optional: prefix for all secrets
+  secret_prefix: myapp-    # Optional: prefix for all secrets
 
 environments:
   dev:
@@ -56,12 +81,12 @@ environments:
     gcp:
       project: my-gcp-project-prod
 
-env_mapping:              # Custom environment variable names
+env_mapping:               # Custom environment variable names
   database.host: DB_HOST
   database.password: DB_PASS
 
 defaults:
-  env: dev                # Default environment
+  env: dev
 ```
 
 ### Config Overlay System
@@ -69,7 +94,7 @@ defaults:
 Configuration is merged in order (later files override earlier):
 
 1. `base.yaml` - Base configuration
-2. `{env}.yaml` - Environment-specific overrides
+2. `{env}.yaml` - Environment-specific overrides (e.g., `dev.yaml`, `prod.yaml`)
 3. `local.yaml` - Local development overrides (not committed)
 
 ### Secret References
@@ -85,65 +110,17 @@ database:
 
 ### Secret Prefix
 
-Use `secret_prefix` to isolate secrets for multi-service projects:
+Use `secret_prefix` to namespace secrets when multiple services share a GCP project:
 
 ```yaml
 gcp:
-  project: shared-dev
+  project: shared-project
   secret_prefix: myservice-
 ```
 
-With this config:
-- `${secret:db-password}` fetches `myservice-db-password` from GCP
-- `coffer secret set db-password` creates `myservice-db-password`
-- `coffer secret list` shows only `myservice-*` secrets
+With this config, `${secret:db-password}` fetches `myservice-db-password` from GCP.
 
-## Commands
-
-### Configuration
-
-```bash
-coffer resolve              # Output resolved config as JSON
-coffer resolve -f yaml      # Output as YAML
-coffer resolve -f dotenv    # Output as .env format
-
-coffer get database.host    # Get a single config value
-
-coffer run -- npm start     # Run command with config as env vars
-
-coffer check                # Validate all secrets exist
-coffer check --all          # Check all environments
-
-coffer validate             # Validate config file syntax
-```
-
-### Secrets
-
-```bash
-coffer secret list                    # List all secrets
-coffer secret get db-password         # Get a secret value
-coffer secret set db-password "val"   # Create/update a secret
-coffer secret set db-pass --from-file key.pem  # From file
-
-coffer secret delete db-password      # Show what would be deleted
-coffer secret delete db-password --yes # Actually delete
-
-coffer secret unused                  # Find unreferenced secrets
-
-coffer secret import .env             # Preview import from .env
-coffer secret import .env --yes       # Import secrets from .env
-```
-
-### Project Setup
-
-```bash
-coffer init                           # Initialize new project
-coffer init --gcp-project myproject   # With GCP project
-
-coffer info                           # Show project info
-```
-
-## Environment Variables
+### Environment Variables
 
 Config keys are automatically converted to environment variables:
 
@@ -154,6 +131,92 @@ Config keys are automatically converted to environment variables:
 
 Use `env_mapping` in `.coffer.yaml` to customize variable names.
 
+## Commands
+
+### coffer run
+
+Run a command with configuration injected as environment variables:
+
+```bash
+coffer run -- npm start
+coffer run --env prod -- ./deploy.sh
+coffer run --dry-run -- node server.js   # Preview env vars without running
+```
+
+### coffer resolve
+
+Output resolved configuration in different formats:
+
+```bash
+coffer resolve              # JSON (default)
+coffer resolve -f yaml      # YAML
+coffer resolve -f dotenv    # .env format
+coffer resolve --env prod   # For a specific environment
+```
+
+### coffer get
+
+Get a single configuration value:
+
+```bash
+coffer get database.host
+coffer get app.log_level --env prod
+```
+
+### coffer check
+
+Validate that all referenced secrets exist in GCP:
+
+```bash
+coffer check              # Check current/default environment
+coffer check --env prod   # Check specific environment
+coffer check --all        # Check all environments
+```
+
+### coffer validate
+
+Validate configuration files for syntax errors:
+
+```bash
+coffer validate
+```
+
+Checks YAML syntax, secret reference format, and env_mapping keys.
+
+### coffer secret
+
+Manage secrets in GCP Secret Manager:
+
+```bash
+coffer secret list                        # List all secrets
+coffer secret get db-password             # Get a secret value
+coffer secret set db-password "value"     # Create/update a secret
+coffer secret set api-key --from-file key.pem  # From file
+coffer secret delete db-password          # Preview deletion
+coffer secret delete db-password --yes    # Confirm deletion
+coffer secret unused                      # Find unreferenced secrets
+```
+
+### coffer secret import
+
+Import secrets from a .env file:
+
+```bash
+coffer secret import .env         # Preview what would be imported
+coffer secret import .env --yes   # Import all secrets
+```
+
+Keys are converted: `DB_PASSWORD` becomes `db-password`.
+
+### coffer auth
+
+Manage GCP authentication:
+
+```bash
+coffer auth status   # Check authentication status
+coffer auth login    # Authenticate to GCP (wraps gcloud)
+```
+
 ## Authentication
 
 Coffer uses Google Cloud Application Default Credentials (ADC):
@@ -161,6 +224,8 @@ Coffer uses Google Cloud Application Default Credentials (ADC):
 ```bash
 # For local development
 gcloud auth application-default login
+# or
+coffer auth login
 
 # For CI/CD, use a service account
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
@@ -170,54 +235,25 @@ Required IAM roles:
 - `roles/secretmanager.secretAccessor` - Read secrets
 - `roles/secretmanager.admin` - Create/delete secrets (optional)
 
-## Development
-
-```bash
-# Clone and setup (installs git hooks)
-git clone git@github.com:sultano/coffer.git
-cd coffer
-make setup
-
-# Build and test
-make build
-make test
-```
-
-## Best Practices
-
-1. **Add `local.yaml` to `.gitignore`** - Local overrides shouldn't be committed
-2. **Use secret prefix** - Isolate secrets per service in shared projects
-3. **Run `coffer check` in CI** - Catch missing secrets before deployment
-4. **Use `coffer validate`** - Catch config errors early
-
-## Examples
-
-### Running in Different Environments
-
-```bash
-coffer run --env dev -- npm start
-coffer run --env prod -- npm start
-```
-
-### Migrating from .env Files
-
-```bash
-# Preview what would be imported
-coffer secret import .env
-
-# Import all secrets
-coffer secret import .env --yes
-```
-
-### CI/CD Pipeline
+## CI/CD
 
 ```yaml
 # GitHub Actions example
-- name: Check secrets
+- name: Check secrets exist
   run: coffer check --env prod
 
-- name: Deploy
+- name: Deploy with secrets
   run: coffer run --env prod -- ./deploy.sh
+```
+
+## Development
+
+```bash
+git clone git@github.com:sultano/coffer.git
+cd coffer
+make setup    # Install git hooks
+make build    # Build binary
+make test     # Run tests
 ```
 
 ## License
