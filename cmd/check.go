@@ -14,8 +14,8 @@ var checkAll bool
 
 var checkCmd = &cobra.Command{
 	Use:   "check",
-	Short: "Validate configuration and secret references",
-	Long: `Validate that configuration files are valid and all referenced secrets exist.
+	Short: "Verify configuration and that secrets exist in GCP",
+	Long: `Verify that configuration files are valid and all referenced secrets exist in GCP Secret Manager.
 
 Use --all to check secrets across all defined environments.`,
 	RunE: runCheck,

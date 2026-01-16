@@ -36,7 +36,7 @@ go install github.com/sultano/coffer@latest
 | Flag | Description |
 |------|-------------|
 | `-e, --env <name>` | Environment name (dev, staging, prod) |
-| `-p, --project <path>` | Path to project directory |
+| `-p, --path <dir>` | Path to project directory |
 | `--dry-run` | Preview changes without applying |
 | `--no-color` | Disable colored output |
 

@@ -15,8 +15,8 @@ import (
 
 var validateCmd = &cobra.Command{
 	Use:   "validate",
-	Short: "Validate configuration files",
-	Long: `Validate configuration files for syntax errors and common issues.
+	Short: "Validate configuration file syntax",
+	Long: `Validate configuration files for syntax errors and structural issues.
 
 Checks:
   - YAML syntax in all config files

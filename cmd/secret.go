@@ -19,7 +19,7 @@ var secretCmd = &cobra.Command{
 
 var secretListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List secrets in GCP Secret Manager",
+	Short: "List secrets",
 	RunE:  runSecretList,
 }
 

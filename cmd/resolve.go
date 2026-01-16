@@ -15,7 +15,7 @@ var outputFormat string
 
 var resolveCmd = &cobra.Command{
 	Use:   "resolve",
-	Short: "Output resolved configuration",
+	Short: "Output configuration with secrets resolved",
 	Long: `Resolve and output configuration with secrets replaced.
 
 Merges base config with environment overlay and local overrides,

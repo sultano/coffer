@@ -22,7 +22,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "coffer",
-	Short: "Config and secrets management using GCP Secret Manager",
+	Short: "Configuration and secrets management using GCP Secret Manager",
 	Long: `Coffer is a language-agnostic CLI for managing configuration and secrets.
 
 Config is versioned in git with environment-specific overlays.
@@ -42,7 +42,7 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&projectPath, "project", "p", "", "path to project directory (default: current directory)")
+	rootCmd.PersistentFlags().StringVarP(&projectPath, "path", "p", "", "path to project directory (default: current directory)")
 	rootCmd.PersistentFlags().StringVarP(&envName, "env", "e", "", "environment name (e.g., dev, staging, prod)")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "preview what would be done without making changes")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "disable colored output")
@@ -52,7 +52,7 @@ func init() {
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the version number",
+	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("coffer %s (commit: %s, built: %s)\n", version, commit, date)
 	},

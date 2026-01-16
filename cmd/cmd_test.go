@@ -116,7 +116,7 @@ database:
 	projectPath = dir
 
 	t.Run("outputs json format", func(t *testing.T) {
-		output, err := execTestCmd("resolve", "--project", dir, "--env", "dev", "--format", "json")
+		output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "json")
 		if err != nil {
 			t.Fatalf("resolve failed: %v", err)
 		}
@@ -130,7 +130,7 @@ database:
 	})
 
 	t.Run("outputs yaml format", func(t *testing.T) {
-		output, err := execTestCmd("resolve", "--project", dir, "--env", "dev", "--format", "yaml")
+		output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "yaml")
 		if err != nil {
 			t.Fatalf("resolve failed: %v", err)
 		}
@@ -141,7 +141,7 @@ database:
 	})
 
 	t.Run("outputs dotenv format", func(t *testing.T) {
-		output, err := execTestCmd("resolve", "--project", dir, "--env", "dev", "--format", "dotenv")
+		output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "dotenv")
 		if err != nil {
 			t.Fatalf("resolve failed: %v", err)
 		}
@@ -180,7 +180,7 @@ database:
 	})
 
 	t.Run("gets nested value", func(t *testing.T) {
-		output, err := execTestCmd("get", "app.name", "--project", dir, "--env", "dev")
+		output, err := execTestCmd("get", "app.name", "--path", dir, "--env", "dev")
 		if err != nil {
 			t.Fatalf("get failed: %v", err)
 		}
@@ -191,7 +191,7 @@ database:
 	})
 
 	t.Run("gets overridden value", func(t *testing.T) {
-		output, err := execTestCmd("get", "database.host", "--project", dir, "--env", "dev")
+		output, err := execTestCmd("get", "database.host", "--path", dir, "--env", "dev")
 		if err != nil {
 			t.Fatalf("get failed: %v", err)
 		}
@@ -202,7 +202,7 @@ database:
 	})
 
 	t.Run("returns error for missing key", func(t *testing.T) {
-		_, err := execTestCmd("get", "nonexistent.key", "--project", dir, "--env", "dev")
+		_, err := execTestCmd("get", "nonexistent.key", "--path", dir, "--env", "dev")
 		if err == nil {
 			t.Fatal("expected error for missing key")
 		}
@@ -237,7 +237,7 @@ app:
 `,
 	})
 
-	output, err := execTestCmd("info", "--project", dir)
+	output, err := execTestCmd("info", "--path", dir)
 	if err != nil {
 		t.Fatalf("info failed: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestInitCommand(t *testing.T) {
 	dir := t.TempDir()
 
 	// Run init with dry-run
-	output, err := execTestCmd("init", "--project", dir, "--dry-run", "--gcp-project", "my-project")
+	output, err := execTestCmd("init", "--path", dir, "--dry-run", "--gcp-project", "my-project")
 	if err != nil {
 		t.Fatalf("init --dry-run failed: %v", err)
 	}
@@ -301,7 +301,7 @@ database:
 	})
 
 	// Local should override both base and dev
-	output, err := execTestCmd("resolve", "--project", dir, "--env", "dev", "--format", "dotenv")
+	output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "dotenv")
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
@@ -343,7 +343,7 @@ app:
 `,
 	})
 
-	output, err := execTestCmd("resolve", "--project", dir, "--env", "dev", "--format", "dotenv")
+	output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "dotenv")
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
@@ -462,7 +462,7 @@ app:
 `,
 		})
 
-		_, err := execTestCmd("validate", "--project", dir)
+		_, err := execTestCmd("validate", "--path", dir)
 		if err != nil {
 			t.Fatalf("validate should pass with valid config: %v", err)
 		}
@@ -488,7 +488,7 @@ app:
 `,
 		})
 
-		_, err := execTestCmd("validate", "--project", dir)
+		_, err := execTestCmd("validate", "--path", dir)
 		if err == nil {
 			t.Fatal("expected error for invalid YAML")
 		}
@@ -521,7 +521,7 @@ app:
 			// Note: no prod.yaml
 		})
 
-		output, err := execTestCmd("validate", "--project", dir)
+		output, err := execTestCmd("validate", "--path", dir)
 		if err != nil {
 			t.Fatalf("validate failed: %v", err)
 		}
@@ -558,7 +558,7 @@ app:
 `,
 		})
 
-		output, err := execTestCmd("validate", "--project", dir)
+		output, err := execTestCmd("validate", "--path", dir)
 		if err != nil {
 			t.Fatalf("validate failed: %v", err)
 		}
