@@ -3,6 +3,7 @@ package secrets
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,5 +171,59 @@ func TestRetryNoResult_RetriesOnTransientError(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("expected 2 calls, got %d", calls)
+	}
+}
+
+func TestFormatAuthError(t *testing.T) {
+	tests := []struct {
+		name        string
+		errMsg      string
+		shouldMatch string
+	}{
+		{
+			name:        "no credentials",
+			errMsg:      "google: could not find default credentials",
+			shouldMatch: "gcloud auth application-default login",
+		},
+		{
+			name:        "token expired",
+			errMsg:      "token expired and refresh failed",
+			shouldMatch: "credentials expired",
+		},
+		{
+			name:        "generic error",
+			errMsg:      "some random network error",
+			shouldMatch: "failed to create GCP client",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := formatAuthError(errors.New(tt.errMsg))
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.shouldMatch) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.shouldMatch)
+			}
+		})
+	}
+}
+
+func TestFormatPermissionError(t *testing.T) {
+	err := FormatPermissionError("my-secret", "my-project", "accessing")
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "my-secret") {
+		t.Error("should contain secret name")
+	}
+	if !strings.Contains(errMsg, "my-project") {
+		t.Error("should contain project name")
+	}
+	if !strings.Contains(errMsg, "coffer auth status") {
+		t.Error("should suggest auth status command")
+	}
+	if !strings.Contains(errMsg, "roles/secretmanager.secretAccessor") {
+		t.Error("should mention required IAM role")
 	}
 }

@@ -31,7 +31,7 @@ type GCPClient struct {
 func New(ctx context.Context) (*GCPClient, error) {
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create secret manager client: %w", err)
+		return nil, formatAuthError(err)
 	}
 	return &GCPClient{client: client}, nil
 }
@@ -57,7 +57,7 @@ func (c *GCPClient) GetSecret(ctx context.Context, ref resolver.SecretRef, gcpPr
 			return "", fmt.Errorf("secret '%s' not found in project '%s'", ref.Name, gcpProject)
 		}
 		if isPermissionError(err) {
-			return "", fmt.Errorf("permission denied accessing secret '%s' - check your GCP credentials and IAM permissions", ref.Name)
+			return "", FormatPermissionError(ref.Name, gcpProject, "accessing")
 		}
 		return "", fmt.Errorf("failed to access secret '%s': %w", ref.Name, err)
 	}
@@ -192,7 +192,7 @@ func (c *GCPClient) DeleteSecret(ctx context.Context, gcpProject, secretName str
 			return fmt.Errorf("secret '%s' not found", secretName)
 		}
 		if isPermissionError(err) {
-			return fmt.Errorf("permission denied deleting secret '%s' - check your GCP IAM permissions", secretName)
+			return FormatPermissionError(secretName, gcpProject, "deleting")
 		}
 		return fmt.Errorf("failed to delete secret '%s': %w", secretName, err)
 	}
@@ -240,6 +240,70 @@ func isPermissionError(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "PermissionDenied") || strings.Contains(msg, "permission denied") || strings.Contains(msg, "403")
+}
+
+// formatAuthError provides actionable error messages for authentication failures
+func formatAuthError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+
+	// No credentials found
+	if strings.Contains(msg, "could not find default credentials") ||
+		strings.Contains(msg, "google: could not find") {
+		return fmt.Errorf(`GCP credentials not found
+
+Run one of:
+  gcloud auth application-default login    (for local development)
+  export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json    (for service account)
+
+For more info: https://cloud.google.com/docs/authentication`)
+	}
+
+	// Credentials expired or invalid
+	if strings.Contains(msg, "token expired") ||
+		strings.Contains(msg, "invalid_grant") ||
+		strings.Contains(msg, "Token has been expired") {
+		return fmt.Errorf(`GCP credentials expired
+
+Run: gcloud auth application-default login`)
+	}
+
+	// Project not set or invalid
+	if strings.Contains(msg, "project") && strings.Contains(msg, "not found") {
+		return fmt.Errorf(`GCP project not found or not accessible
+
+Check:
+  1. Project ID is correct in your config
+  2. You have access to the project: gcloud projects describe PROJECT_ID`)
+	}
+
+	// Generic auth failure
+	if strings.Contains(msg, "authentication") || strings.Contains(msg, "credentials") {
+		return fmt.Errorf(`GCP authentication failed: %w
+
+Run: coffer auth status    (to check auth status)
+Run: coffer auth login     (to authenticate)`, err)
+	}
+
+	return fmt.Errorf("failed to create GCP client: %w", err)
+}
+
+// FormatPermissionError provides actionable error messages for permission denied errors
+func FormatPermissionError(secretName, gcpProject, operation string) error {
+	return fmt.Errorf(`permission denied %s secret '%s'
+
+Check:
+  1. You are authenticated: coffer auth status
+  2. You have the required IAM role on project '%s':
+     - Secret read: roles/secretmanager.secretAccessor
+     - Secret write: roles/secretmanager.admin
+
+Grant access:
+  gcloud projects add-iam-policy-binding %s \
+    --member="user:YOUR_EMAIL" \
+    --role="roles/secretmanager.secretAccessor"`, operation, secretName, gcpProject, gcpProject)
 }
 
 // isRetriableError returns true for transient errors that should be retried

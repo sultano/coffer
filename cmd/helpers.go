@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"time"
 
@@ -39,7 +38,7 @@ func newGCPClient(timeout time.Duration) (*GCPClientResult, context.Context, err
 	client, err := secrets.New(ctx)
 	if err != nil {
 		cancel()
-		return nil, nil, fmt.Errorf("failed to connect to GCP: %w", err)
+		return nil, nil, err
 	}
 
 	return &GCPClientResult{Client: client, Cancel: cancel}, ctx, nil
