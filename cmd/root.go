@@ -16,6 +16,8 @@ var (
 	noColor     bool
 
 	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 var rootCmd = &cobra.Command{
@@ -52,7 +54,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version number",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("coffer", version)
+		fmt.Printf("coffer %s (commit: %s, built: %s)\n", version, commit, date)
 	},
 }
 
