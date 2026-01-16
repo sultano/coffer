@@ -12,7 +12,7 @@ setup:
 	@echo "Setup complete"
 
 build:
-	go build $(LDFLAGS) -o coffer .
+	go build $(LDFLAGS) -o bin/coffer .
 
 test:
 	go test ./...
