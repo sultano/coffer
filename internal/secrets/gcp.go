@@ -3,13 +3,23 @@ package secrets
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/sultano/coffer/internal/resolver"
+)
+
+const (
+	maxRetries     = 3
+	initialBackoff = 100 * time.Millisecond
+	maxBackoff     = 5 * time.Second
 )
 
 // GCPClient implements resolver.SecretProvider using GCP Secret Manager
@@ -39,7 +49,9 @@ func (c *GCPClient) GetSecret(ctx context.Context, ref resolver.SecretRef, gcpPr
 		Name: name,
 	}
 
-	result, err := c.client.AccessSecretVersion(ctx, req)
+	result, err := retry(ctx, func() (*secretmanagerpb.AccessSecretVersionResponse, error) {
+		return c.client.AccessSecretVersion(ctx, req)
+	})
 	if err != nil {
 		if isNotFoundError(err) {
 			return "", fmt.Errorf("secret '%s' not found in project '%s'", ref.Name, gcpProject)
@@ -118,7 +130,10 @@ func (c *GCPClient) CreateSecret(ctx context.Context, gcpProject, secretName str
 		},
 	}
 
-	_, err := c.client.CreateSecret(ctx, req)
+	err := retryNoResult(ctx, func() error {
+		_, err := c.client.CreateSecret(ctx, req)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create secret '%s': %w", secretName, err)
 	}
@@ -135,7 +150,10 @@ func (c *GCPClient) AddSecretVersion(ctx context.Context, gcpProject, secretName
 		},
 	}
 
-	_, err := c.client.AddSecretVersion(ctx, req)
+	err := retryNoResult(ctx, func() error {
+		_, err := c.client.AddSecretVersion(ctx, req)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("failed to add version to secret '%s': %w", secretName, err)
 	}
@@ -166,7 +184,10 @@ func (c *GCPClient) DeleteSecret(ctx context.Context, gcpProject, secretName str
 		Name: fmt.Sprintf("projects/%s/secrets/%s", gcpProject, secretName),
 	}
 
-	if err := c.client.DeleteSecret(ctx, req); err != nil {
+	err := retryNoResult(ctx, func() error {
+		return c.client.DeleteSecret(ctx, req)
+	})
+	if err != nil {
 		if isNotFoundError(err) {
 			return fmt.Errorf("secret '%s' not found", secretName)
 		}
@@ -185,7 +206,9 @@ func (c *GCPClient) SecretExists(ctx context.Context, gcpProject, secretName str
 		Name: fmt.Sprintf("projects/%s/secrets/%s", gcpProject, secretName),
 	}
 
-	_, err := c.client.GetSecret(ctx, req)
+	_, err := retry(ctx, func() (*secretmanagerpb.Secret, error) {
+		return c.client.GetSecret(ctx, req)
+	})
 	if err != nil {
 		// Check if it's a not found error
 		if isNotFoundError(err) {
@@ -201,6 +224,9 @@ func isNotFoundError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if s, ok := status.FromError(err); ok {
+		return s.Code() == codes.NotFound
+	}
 	msg := err.Error()
 	return strings.Contains(msg, "NotFound") || strings.Contains(msg, "not found")
 }
@@ -209,6 +235,76 @@ func isPermissionError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if s, ok := status.FromError(err); ok {
+		return s.Code() == codes.PermissionDenied
+	}
 	msg := err.Error()
 	return strings.Contains(msg, "PermissionDenied") || strings.Contains(msg, "permission denied") || strings.Contains(msg, "403")
+}
+
+// isRetriableError returns true for transient errors that should be retried
+func isRetriableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Don't retry permanent errors
+	if isNotFoundError(err) || isPermissionError(err) {
+		return false
+	}
+	// Check gRPC status codes
+	if s, ok := status.FromError(err); ok {
+		switch s.Code() {
+		case codes.Unavailable, codes.ResourceExhausted, codes.Aborted, codes.DeadlineExceeded:
+			return true
+		}
+	}
+	// Retry on common transient error messages
+	msg := err.Error()
+	return strings.Contains(msg, "connection") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "temporarily") ||
+		strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "quota")
+}
+
+// retry executes fn with exponential backoff
+func retry[T any](ctx context.Context, fn func() (T, error)) (T, error) {
+	var result T
+	var err error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		result, err = fn()
+		if err == nil {
+			return result, nil
+		}
+		if !isRetriableError(err) {
+			return result, err
+		}
+		if attempt == maxRetries {
+			break
+		}
+		// Exponential backoff with jitter
+		backoff := initialBackoff * time.Duration(1<<attempt)
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+		jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
+		backoff = backoff + jitter
+
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+
+	return result, fmt.Errorf("failed after %d retries: %w", maxRetries, err)
+}
+
+// retryNoResult executes fn with exponential backoff for functions that return only error
+func retryNoResult(ctx context.Context, fn func() error) error {
+	_, err := retry(ctx, func() (struct{}, error) {
+		return struct{}{}, fn()
+	})
+	return err
 }
