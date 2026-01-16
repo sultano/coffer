@@ -1,4 +1,4 @@
-.PHONY: setup build install test fmt vet
+.PHONY: setup build install uninstall clean test fmt vet
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -16,6 +16,12 @@ build:
 
 install: build
 	cp bin/coffer /usr/local/bin/coffer
+
+uninstall:
+	rm -f /usr/local/bin/coffer
+
+clean:
+	rm -rf bin/
 
 test:
 	go test ./...
