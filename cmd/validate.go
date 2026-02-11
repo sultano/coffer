@@ -77,7 +77,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	// Print results
 	if len(result.warnings) > 0 {
-		yellow.Println("Warnings:")
+		_, _ = yellow.Println("Warnings:")
 		for _, w := range result.warnings {
 			fmt.Printf("  - %s\n", w)
 		}
@@ -85,7 +85,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(result.errors) > 0 {
-		red.Println("Errors:")
+		_, _ = red.Println("Errors:")
 		for _, e := range result.errors {
 			fmt.Printf("  - %s\n", e)
 		}
@@ -93,7 +93,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed with %d error(s)", len(result.errors))
 	}
 
-	green.Println("Validation passed")
+	_, _ = green.Println("Validation passed")
 	return nil
 }
 

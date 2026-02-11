@@ -394,7 +394,7 @@ func runSecretUnused(cmd *cobra.Command, args []string) error {
 	}
 
 	yellow := color.New(color.FgYellow)
-	yellow.Printf("Found %d potentially unused secret(s):\n\n", len(unused))
+	_, _ = yellow.Printf("Found %d potentially unused secret(s):\n\n", len(unused))
 
 	fmt.Println("Warning: These secrets may be used by other services outside this config.")
 	fmt.Println()

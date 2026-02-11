@@ -35,45 +35,45 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	}
 
 	// Project info
-	bold.Println("Project")
+	_, _ = bold.Println("Project")
 	fmt.Printf("  Path: %s\n", projectRoot)
 
 	project, err := config.LoadProject(projectRoot)
 	if err != nil {
-		red.Printf("  Status: not initialized\n")
+		_, _ = red.Printf("  Status: not initialized\n")
 		fmt.Println()
 		fmt.Println("Run 'coffer init' to initialize this project")
 		return nil
 	}
-	green.Printf("  Status: initialized\n")
+	_, _ = green.Printf("  Status: initialized\n")
 	fmt.Printf("  Config path: %s\n", project.Config.Path)
 	fmt.Println()
 
 	// Authentication
-	bold.Println("Authentication")
+	_, _ = bold.Println("Authentication")
 	account, err := getGCloudAccount()
 	if err != nil {
-		red.Printf("  GCP: not authenticated\n")
+		_, _ = red.Printf("  GCP: not authenticated\n")
 		fmt.Println("  Run: gcloud auth application-default login")
 	} else {
-		green.Printf("  GCP: %s\n", account)
+		_, _ = green.Printf("  GCP: %s\n", account)
 
 		// Check Secret Manager access with quick timeout
 		gcpResult, _, gcpErr := newGCPClient(QuickGCPTimeout)
 		if gcpErr != nil {
-			yellow.Printf("  Secret Manager: connection failed\n")
+			_, _ = yellow.Printf("  Secret Manager: connection failed\n")
 		} else {
-			green.Printf("  Secret Manager: accessible\n")
+			_, _ = green.Printf("  Secret Manager: accessible\n")
 			gcpResult.Close()
 		}
 	}
 	fmt.Println()
 
 	// Environments
-	bold.Println("Environments")
+	_, _ = bold.Println("Environments")
 	envs := project.ListEnvironments()
 	if len(envs) == 0 {
-		yellow.Println("  No environments defined")
+		_, _ = yellow.Println("  No environments defined")
 	} else {
 		sort.Strings(envs)
 		for _, env := range envs {
@@ -100,18 +100,18 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// Config files
-	bold.Println("Config Files")
+	_, _ = bold.Println("Config Files")
 	configDir := filepath.Join(projectRoot, project.Config.Path)
 	baseFile := filepath.Join(configDir, project.Config.Base)
 	if fileExists(baseFile) {
-		green.Printf("  ✓ %s\n", project.Config.Base)
+		_, _ = green.Printf("  ✓ %s\n", project.Config.Base)
 	} else {
-		red.Printf("  ✗ %s (missing)\n", project.Config.Base)
+		_, _ = red.Printf("  ✗ %s (missing)\n", project.Config.Base)
 	}
 
 	localFile := filepath.Join(configDir, "local.yaml")
 	if fileExists(localFile) {
-		green.Printf("  ✓ local.yaml (local overrides)\n")
+		_, _ = green.Printf("  ✓ local.yaml (local overrides)\n")
 	}
 	fmt.Println()
 
@@ -122,17 +122,17 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	}
 
 	if env != "" {
-		bold.Printf("Secrets (%s)\n", env)
+		_, _ = bold.Printf("Secrets (%s)\n", env)
 
 		loaded, err := config.Load(projectRoot, env)
 		if err != nil {
-			yellow.Printf("  Could not load config: %v\n", err)
+			_, _ = yellow.Printf("  Could not load config: %v\n", err)
 		} else {
 			flat := config.Flatten(loaded.Values)
 			refs := resolver.FindSecretRefs(flat)
 
 			if len(refs) == 0 {
-				yellow.Println("  No secret references found")
+				_, _ = yellow.Println("  No secret references found")
 			} else {
 				for _, ref := range refs {
 					version := ref.Version
@@ -148,7 +148,7 @@ func runInfo(cmd *cobra.Command, args []string) error {
 
 	// Env var mappings
 	if len(project.EnvMapping) > 0 {
-		bold.Println("Env Var Mappings")
+		_, _ = bold.Println("Env Var Mappings")
 		keys := make([]string, 0, len(project.EnvMapping))
 		for k := range project.EnvMapping {
 			keys = append(keys, k)

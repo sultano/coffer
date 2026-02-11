@@ -38,14 +38,14 @@ func execTestCmd(args ...string) (string, error) {
 	err := rootCmd.Execute()
 
 	// Restore stdout and read captured output
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 	os.Stderr = oldStderr
 	color.Output = oldColorOutput
 
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	r.Close()
+	_ = r.Close()
 
 	return buf.String(), err
 }
@@ -939,10 +939,12 @@ func TestOutputResult(t *testing.T) {
 
 		err := outputResult(envVars, "json")
 
-		w.Close()
+		_ = w.Close()
 		os.Stdout = oldStdout
 		var buf bytes.Buffer
-		io.Copy(&buf, r)
+		if _, copyErr := io.Copy(&buf, r); copyErr != nil {
+			t.Fatalf("failed to read output: %v", copyErr)
+		}
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -960,10 +962,12 @@ func TestOutputResult(t *testing.T) {
 
 		err := outputResult(envVars, "yaml")
 
-		w.Close()
+		_ = w.Close()
 		os.Stdout = oldStdout
 		var buf bytes.Buffer
-		io.Copy(&buf, r)
+		if _, copyErr := io.Copy(&buf, r); copyErr != nil {
+			t.Fatalf("failed to read output: %v", copyErr)
+		}
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -981,10 +985,12 @@ func TestOutputResult(t *testing.T) {
 
 		err := outputResult(envVars, "dotenv")
 
-		w.Close()
+		_ = w.Close()
 		os.Stdout = oldStdout
 		var buf bytes.Buffer
-		io.Copy(&buf, r)
+		if _, copyErr := io.Copy(&buf, r); copyErr != nil {
+			t.Fatalf("failed to read output: %v", copyErr)
+		}
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -1019,10 +1025,10 @@ func TestPrintDryRun(t *testing.T) {
 
 	err := printDryRun(envVars, cmdArgs)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1542,7 +1548,9 @@ defaults:
 		})
 
 		envFile := filepath.Join(dir, "secrets.env")
-		os.WriteFile(envFile, []byte("DB_PASSWORD=secret123\nAPI_KEY=mykey\n"), 0644)
+		if err := os.WriteFile(envFile, []byte("DB_PASSWORD=secret123\nAPI_KEY=mykey\n"), 0644); err != nil {
+			t.Fatalf("failed to write env file: %v", err)
+		}
 
 		output, err := execTestCmd("secret", "import", envFile, "--path", dir, "--env", "dev")
 		if err != nil {
@@ -1579,7 +1587,9 @@ defaults:
 		})
 
 		envFile := filepath.Join(dir, "secrets.env")
-		os.WriteFile(envFile, []byte("DB_PASSWORD=secret123\nAPI_KEY=mykey\n"), 0644)
+		if err := os.WriteFile(envFile, []byte("DB_PASSWORD=secret123\nAPI_KEY=mykey\n"), 0644); err != nil {
+			t.Fatalf("failed to write env file: %v", err)
+		}
 
 		output, err := execTestCmd("secret", "import", envFile, "--yes", "--path", dir, "--env", "dev")
 		if err != nil {

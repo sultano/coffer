@@ -45,16 +45,16 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	// Check gcloud account
 	account, err := getGCloudAccount()
 	if err != nil {
-		red.Printf("✗ Not authenticated to gcloud\n")
+		_, _ = red.Printf("✗ Not authenticated to gcloud\n")
 		fmt.Println("  Run: gcloud auth application-default login")
 		return nil
 	}
-	green.Printf("✓ Authenticated as: %s\n", account)
+	_, _ = green.Printf("✓ Authenticated as: %s\n", account)
 
 	// Check project
 	project, err := getGCloudProject()
 	if err == nil && project != "" {
-		green.Printf("✓ GCP Project: %s\n", project)
+		_, _ = green.Printf("✓ GCP Project: %s\n", project)
 	}
 
 	// Check Secret Manager access
@@ -63,13 +63,13 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
-		red.Printf("✗ Secret Manager access: failed to create client\n")
+		_, _ = red.Printf("✗ Secret Manager access: failed to create client\n")
 		fmt.Printf("  Error: %v\n", err)
 		return nil
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
-	green.Printf("✓ Secret Manager access: granted\n")
+	_, _ = green.Printf("✓ Secret Manager access: granted\n")
 
 	return nil
 }

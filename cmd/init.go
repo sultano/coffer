@@ -42,7 +42,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Check if already initialized
 	cofferPath := filepath.Join(projectRoot, ".coffer.yaml")
 	if fileExists(cofferPath) {
-		yellow.Println("Project already initialized (.coffer.yaml exists)")
+		_, _ = yellow.Println("Project already initialized (.coffer.yaml exists)")
 		return nil
 	}
 
@@ -116,7 +116,7 @@ defaults:
 	if err := os.WriteFile(cofferPath, []byte(cofferContent), 0644); err != nil {
 		return fmt.Errorf("failed to create .coffer.yaml: %w", err)
 	}
-	green.Println("✓ Created .coffer.yaml")
+	_, _ = green.Println("✓ Created .coffer.yaml")
 
 	// Create base.yaml
 	basePath := filepath.Join(configDir, "base.yaml")
@@ -135,9 +135,9 @@ app:
 		if err := os.WriteFile(basePath, []byte(baseContent), 0644); err != nil {
 			return fmt.Errorf("failed to create base.yaml: %w", err)
 		}
-		green.Println("✓ Created config/base.yaml")
+		_, _ = green.Println("✓ Created config/base.yaml")
 	} else {
-		yellow.Println("  config/base.yaml already exists, skipping")
+		_, _ = yellow.Println("  config/base.yaml already exists, skipping")
 	}
 
 	// Create dev.yaml
@@ -150,7 +150,7 @@ app:
 		if err := os.WriteFile(devPath, []byte(devContent), 0644); err != nil {
 			return fmt.Errorf("failed to create dev.yaml: %w", err)
 		}
-		green.Println("✓ Created config/dev.yaml")
+		_, _ = green.Println("✓ Created config/dev.yaml")
 	}
 
 	// Update .gitignore
@@ -161,13 +161,13 @@ app:
 	}
 
 	if err := updateGitignore(gitignorePath, gitignoreEntries); err != nil {
-		yellow.Printf("  Warning: could not update .gitignore: %v\n", err)
+		_, _ = yellow.Printf("  Warning: could not update .gitignore: %v\n", err)
 	} else {
-		green.Println("✓ Updated .gitignore")
+		_, _ = green.Println("✓ Updated .gitignore")
 	}
 
 	fmt.Println()
-	green.Println("Coffer initialized successfully!")
+	_, _ = green.Println("Coffer initialized successfully!")
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Edit .coffer.yaml to configure your GCP project(s)")
@@ -211,7 +211,7 @@ func updateGitignore(path string, entries []string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Add newline if file doesn't end with one
 	if fileExists(path) {

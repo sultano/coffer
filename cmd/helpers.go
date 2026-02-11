@@ -24,7 +24,7 @@ type GCPClientResult struct {
 // Close cleans up the GCP client and cancels the context
 func (r *GCPClientResult) Close() {
 	if r.Client != nil {
-		r.Client.Close()
+		_ = r.Client.Close()
 	}
 	if r.Cancel != nil {
 		r.Cancel()

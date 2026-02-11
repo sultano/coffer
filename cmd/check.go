@@ -62,7 +62,7 @@ func checkEnvironment(projectRoot string, project *config.ProjectConfig, env str
 	refs := resolver.FindSecretRefs(flat)
 
 	if len(refs) == 0 {
-		yellow.Println("No secret references found in configuration")
+		_, _ = yellow.Println("No secret references found in configuration")
 		return nil
 	}
 
@@ -92,7 +92,7 @@ func checkEnvironment(projectRoot string, project *config.ProjectConfig, env str
 
 		exists, err := gcpResult.Client.SecretExists(ctx, gcpProject, fullName)
 		if err != nil {
-			red.Printf("✗ %s - error: %v\n", ref.Name, err)
+			_, _ = red.Printf("✗ %s - error: %v\n", ref.Name, err)
 			missing = append(missing, ref.Name)
 			continue
 		}
@@ -103,12 +103,12 @@ func checkEnvironment(projectRoot string, project *config.ProjectConfig, env str
 				version = "latest"
 			}
 			if secretPrefix != "" {
-				green.Printf("✓ %s (stored as: %s, version: %s)\n", ref.Name, fullName, version)
+				_, _ = green.Printf("✓ %s (stored as: %s, version: %s)\n", ref.Name, fullName, version)
 			} else {
-				green.Printf("✓ %s (version: %s)\n", ref.Name, version)
+				_, _ = green.Printf("✓ %s (version: %s)\n", ref.Name, version)
 			}
 		} else {
-			red.Printf("✗ %s - NOT FOUND in GCP Secret Manager\n", ref.Name)
+			_, _ = red.Printf("✗ %s - NOT FOUND in GCP Secret Manager\n", ref.Name)
 			if secretPrefix != "" {
 				fmt.Printf("  (looking for: %s)\n", fullName)
 			}
@@ -119,7 +119,7 @@ func checkEnvironment(projectRoot string, project *config.ProjectConfig, env str
 	fmt.Println()
 
 	if len(missing) > 0 {
-		red.Printf("Error: %d secret(s) not found\n", len(missing))
+		_, _ = red.Printf("Error: %d secret(s) not found\n", len(missing))
 		fmt.Println()
 		fmt.Println("To create missing secrets:")
 		for _, name := range missing {
@@ -128,7 +128,7 @@ func checkEnvironment(projectRoot string, project *config.ProjectConfig, env str
 		return fmt.Errorf("%d secret(s) missing", len(missing))
 	}
 
-	green.Println("All secrets validated successfully")
+	_, _ = green.Println("All secrets validated successfully")
 	return nil
 }
 
@@ -163,7 +163,7 @@ func checkAllEnvironments(projectRoot string, project *config.ProjectConfig) err
 	for _, env := range envs {
 		loaded, err := config.Load(projectRoot, env)
 		if err != nil {
-			red.Printf("Error loading %s: %v\n", env, err)
+			_, _ = red.Printf("Error loading %s: %v\n", env, err)
 			continue
 		}
 
@@ -205,12 +205,12 @@ func checkAllEnvironments(projectRoot string, project *config.ProjectConfig) err
 
 		for _, status := range statuses {
 			if status.err != nil {
-				red.Printf(" ✗ %s", status.env)
+				_, _ = red.Printf(" ✗ %s", status.env)
 				issues = append(issues, fmt.Sprintf("%s error in %s: %v", name, status.env, status.err))
 			} else if status.exists {
-				green.Printf(" ✓ %s", status.env)
+				_, _ = green.Printf(" ✓ %s", status.env)
 			} else {
-				red.Printf(" ✗ %s", status.env)
+				_, _ = red.Printf(" ✗ %s", status.env)
 				issues = append(issues, fmt.Sprintf("%s missing in %s", name, status.env))
 			}
 		}
@@ -220,13 +220,13 @@ func checkAllEnvironments(projectRoot string, project *config.ProjectConfig) err
 	fmt.Println()
 
 	if len(issues) > 0 {
-		red.Printf("Issues found: %d\n", len(issues))
+		_, _ = red.Printf("Issues found: %d\n", len(issues))
 		fmt.Println()
 		fmt.Println("To fix missing secrets:")
 		fmt.Println("  coffer secret set <name> --env <environment>")
 		return fmt.Errorf("%d issue(s) found", len(issues))
 	}
 
-	green.Println("All environments validated successfully")
+	_, _ = green.Println("All environments validated successfully")
 	return nil
 }
