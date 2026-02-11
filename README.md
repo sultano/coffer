@@ -6,8 +6,50 @@ Coffer lets you store configuration in version-controlled YAML files while keepi
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew install sultano/tap/coffer
+```
+
+### Install Script
+
+```bash
+curl -sfL https://raw.githubusercontent.com/sultano/coffer/main/install.sh | sh
+```
+
+To install to a custom directory:
+
+```bash
+INSTALL_DIR=/usr/local/bin curl -sfL https://raw.githubusercontent.com/sultano/coffer/main/install.sh | sh
+```
+
+### Go Install
+
 ```bash
 go install github.com/sultano/coffer@latest
+```
+
+### Manual Download
+
+Download the latest archive for your platform from [GitHub Releases](https://github.com/sultano/coffer/releases), extract it, and place the `coffer` binary in your `PATH`.
+
+## Quick Start
+
+```bash
+# Initialize a new project
+coffer init --gcp-project my-gcp-project
+
+# Add a secret reference to your config
+echo 'database:
+  host: localhost
+  password: ${secret:db-password}' >> config/base.yaml
+
+# Set the secret in GCP
+coffer secret set db-password "supersecret"
+
+# Run your app with config injected
+coffer run -- node server.js
 ```
 
 ## Command Reference
@@ -39,24 +81,6 @@ go install github.com/sultano/coffer@latest
 | `-p, --path <dir>` | Path to project directory |
 | `--dry-run` | Preview changes without applying |
 | `--no-color` | Disable colored output |
-
-## Quick Start
-
-```bash
-# Initialize a new project
-coffer init --gcp-project my-gcp-project
-
-# Add a secret reference to your config
-echo 'database:
-  host: localhost
-  password: ${secret:db-password}' >> config/base.yaml
-
-# Set the secret in GCP
-coffer secret set db-password "supersecret"
-
-# Run your app with config injected
-coffer run -- node server.js
-```
 
 ## Configuration
 

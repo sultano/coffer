@@ -23,11 +23,11 @@ builds:
       - -X github.com/sultano/coffer/cmd.date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
   name_template: 'checksums.txt'
@@ -41,3 +41,14 @@ changelog:
       - '^ci:'
       - Merge pull request
       - Merge branch
+
+homebrew_casks:
+  - repository:
+      owner: sultano
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    binaries:
+      - coffer
+    homepage: "https://github.com/sultano/coffer"
+    description: "CLI tool for managing application configuration with GCP Secret Manager integration"
