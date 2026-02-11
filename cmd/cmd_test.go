@@ -2,13 +2,18 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fatih/color"
 	"github.com/sultano/coffer/internal/config"
+	"github.com/sultano/coffer/internal/resolver"
 )
 
 // execTestCmd runs a command and captures stdout/stderr
@@ -16,15 +21,18 @@ func execTestCmd(args ...string) (string, error) {
 	// Capture stdout
 	oldStdout := os.Stdout
 	oldStderr := os.Stderr
+	oldColorOutput := color.Output
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 	os.Stderr = w
+	color.Output = w
 
 	// Reset global state
 	envName = ""
 	projectPath = ""
 	dryRun = false
 	noColor = true
+	yesFlag = false
 
 	rootCmd.SetArgs(args)
 	err := rootCmd.Execute()
@@ -33,6 +41,7 @@ func execTestCmd(args ...string) (string, error) {
 	w.Close()
 	os.Stdout = oldStdout
 	os.Stderr = oldStderr
+	color.Output = oldColorOutput
 
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
@@ -792,4 +801,962 @@ app:
 			t.Error("db-password should not be referenced without prefix")
 		}
 	})
+}
+
+// --- Pure function tests ---
+
+func TestParseRunArgs(t *testing.T) {
+	// Save and restore global state
+	saveEnv := envName
+	savePath := projectPath
+	saveDry := dryRun
+	t.Cleanup(func() {
+		envName = saveEnv
+		projectPath = savePath
+		dryRun = saveDry
+	})
+
+	t.Run("flags before separator", func(t *testing.T) {
+		envName = ""
+		projectPath = ""
+		dryRun = false
+
+		args, err := parseRunArgs([]string{"--env", "prod", "--", "echo", "hello"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(args) != 2 || args[0] != "echo" || args[1] != "hello" {
+			t.Errorf("expected [echo hello], got %v", args)
+		}
+		if envName != "prod" {
+			t.Errorf("expected envName=prod, got %q", envName)
+		}
+	})
+
+	t.Run("no separator", func(t *testing.T) {
+		envName = ""
+		args, err := parseRunArgs([]string{"echo", "hello"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(args) != 2 || args[0] != "echo" {
+			t.Errorf("expected [echo hello], got %v", args)
+		}
+	})
+
+	t.Run("dry-run flag", func(t *testing.T) {
+		dryRun = false
+		args, err := parseRunArgs([]string{"--dry-run", "--", "ls"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !dryRun {
+			t.Error("expected dryRun=true")
+		}
+		if len(args) != 1 || args[0] != "ls" {
+			t.Errorf("expected [ls], got %v", args)
+		}
+	})
+
+	t.Run("project flag", func(t *testing.T) {
+		projectPath = ""
+		_, err := parseRunArgs([]string{"-p", "/tmp/proj", "--", "ls"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if projectPath != "/tmp/proj" {
+			t.Errorf("expected projectPath=/tmp/proj, got %q", projectPath)
+		}
+	})
+
+	t.Run("env short flag", func(t *testing.T) {
+		envName = ""
+		_, err := parseRunArgs([]string{"-e", "staging", "--", "ls"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if envName != "staging" {
+			t.Errorf("expected envName=staging, got %q", envName)
+		}
+	})
+}
+
+func TestTrimNewline(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"hello\n", "hello"},
+		{"hello\r\n", "hello"},
+		{"hello", "hello"},
+		{"", ""},
+		{"\n\n", ""},
+		{"line\r\n\n", "line"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q", tt.input), func(t *testing.T) {
+			got := trimNewline(tt.input)
+			if got != tt.expected {
+				t.Errorf("trimNewline(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestUnquoteValue(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{`"double quoted"`, "double quoted"},
+		{`'single quoted'`, "single quoted"},
+		{"unquoted", "unquoted"},
+		{"x", "x"},
+		{"", ""},
+		{`""`, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := unquoteValue(tt.input)
+			if got != tt.expected {
+				t.Errorf("unquoteValue(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestOutputResult(t *testing.T) {
+	envVars := map[string]string{
+		"KEY": "value",
+	}
+
+	t.Run("json format", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := outputResult(envVars, "json")
+
+		w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		output := buf.String()
+		if !strings.Contains(output, `"KEY"`) || !strings.Contains(output, `"value"`) {
+			t.Errorf("expected JSON with KEY:value, got: %s", output)
+		}
+	})
+
+	t.Run("yaml format", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := outputResult(envVars, "yaml")
+
+		w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		output := buf.String()
+		if !strings.Contains(output, "KEY:") {
+			t.Errorf("expected YAML with KEY:, got: %s", output)
+		}
+	})
+
+	t.Run("dotenv format", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := outputResult(envVars, "dotenv")
+
+		w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		output := buf.String()
+		if !strings.Contains(output, "KEY=value") {
+			t.Errorf("expected dotenv KEY=value, got: %s", output)
+		}
+	})
+
+	t.Run("unsupported format", func(t *testing.T) {
+		err := outputResult(envVars, "xml")
+		if err == nil {
+			t.Fatal("expected error for unsupported format")
+		}
+		if !strings.Contains(err.Error(), "unsupported format") {
+			t.Errorf("expected 'unsupported format' error, got: %v", err)
+		}
+	})
+}
+
+func TestPrintDryRun(t *testing.T) {
+	envVars := map[string]string{
+		"DB_HOST":     "localhost",
+		"DB_PASSWORD": "secret",
+	}
+	cmdArgs := []string{"echo", "hello"}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := printDryRun(envVars, cmdArgs)
+
+	w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "Dry run") {
+		t.Error("expected 'Dry run' in output")
+	}
+	if !strings.Contains(output, "DB_HOST=localhost") {
+		t.Error("expected DB_HOST in output")
+	}
+	if !strings.Contains(output, "Command:") {
+		t.Error("expected 'Command:' in output")
+	}
+}
+
+// --- Mock GCP client for integration tests ---
+
+type mockSecretClient struct {
+	secrets    map[string]string // name -> value
+	secretList []string          // full GCP paths
+}
+
+func newMockSecretClient(secretData map[string]string) *mockSecretClient {
+	m := &mockSecretClient{
+		secrets: secretData,
+	}
+	for name := range secretData {
+		m.secretList = append(m.secretList, fmt.Sprintf("projects/test-project/secrets/%s", name))
+	}
+	return m
+}
+
+func (m *mockSecretClient) GetSecret(_ context.Context, ref resolver.SecretRef, _ string) (string, error) {
+	name := ref.Name
+	if v, ok := m.secrets[name]; ok {
+		return v, nil
+	}
+	return "", fmt.Errorf("secret '%s' not found", name)
+}
+
+func (m *mockSecretClient) ListSecrets(_ context.Context, _ string) ([]string, error) {
+	return m.secretList, nil
+}
+
+func (m *mockSecretClient) CreateSecret(_ context.Context, _, secretName string) error {
+	return nil
+}
+
+func (m *mockSecretClient) AddSecretVersion(_ context.Context, _, secretName, value string) error {
+	m.secrets[secretName] = value
+	return nil
+}
+
+func (m *mockSecretClient) SetSecret(_ context.Context, _, secretName, value string) error {
+	m.secrets[secretName] = value
+	return nil
+}
+
+func (m *mockSecretClient) DeleteSecret(_ context.Context, _, secretName string) error {
+	if _, ok := m.secrets[secretName]; !ok {
+		return fmt.Errorf("secret '%s' not found", secretName)
+	}
+	delete(m.secrets, secretName)
+	return nil
+}
+
+func (m *mockSecretClient) SecretExists(_ context.Context, _, secretName string) (bool, error) {
+	_, ok := m.secrets[secretName]
+	return ok, nil
+}
+
+func (m *mockSecretClient) Close() error {
+	return nil
+}
+
+// withMockGCPClient sets up the mock and returns a cleanup function
+func withMockGCPClient(t *testing.T, mock *mockSecretClient) {
+	t.Helper()
+	original := newGCPClientFunc
+	newGCPClientFunc = func(_ time.Duration) (*GCPClientResult, context.Context, error) {
+		ctx := context.Background()
+		return &GCPClientResult{Client: mock, Cancel: func() {}}, ctx, nil
+	}
+	t.Cleanup(func() { newGCPClientFunc = original })
+}
+
+// --- Integration tests with mocked GCP ---
+
+func TestRunCheck_WithMock(t *testing.T) {
+	t.Run("all secrets found", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{
+			"db-password": "secret123",
+		})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": `
+database:
+  password: ${secret:db-password}
+`,
+			"config/dev.yaml": `
+app:
+  debug: true
+`,
+		})
+
+		output, err := execTestCmd("check", "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("check failed: %v", err)
+		}
+		if !strings.Contains(output, "db-password") {
+			t.Errorf("expected db-password in output, got: %s", output)
+		}
+		if !strings.Contains(output, "All secrets validated") {
+			t.Errorf("expected success message, got: %s", output)
+		}
+	})
+
+	t.Run("missing secret", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": `
+database:
+  password: ${secret:db-password}
+`,
+			"config/dev.yaml": `
+app:
+  debug: true
+`,
+		})
+
+		output, err := execTestCmd("check", "--path", dir, "--env", "dev")
+		if err == nil {
+			t.Fatal("expected error for missing secret")
+		}
+		if !strings.Contains(output, "NOT FOUND") {
+			t.Errorf("expected NOT FOUND in output, got: %s", output)
+		}
+	})
+}
+
+func TestRunSecretList_WithMock(t *testing.T) {
+	t.Run("lists secrets", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{
+			"db-password": "secret",
+			"api-key":     "key123",
+		})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "list", "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("secret list failed: %v", err)
+		}
+		if !strings.Contains(output, "db-password") {
+			t.Errorf("expected db-password in output, got: %s", output)
+		}
+		if !strings.Contains(output, "api-key") {
+			t.Errorf("expected api-key in output, got: %s", output)
+		}
+	})
+
+	t.Run("filters by prefix", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{
+			"svc-db-password": "secret",
+			"other-key":       "key",
+		})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+  secret_prefix: "svc-"
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "list", "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("secret list failed: %v", err)
+		}
+		if !strings.Contains(output, "db-password") {
+			t.Errorf("expected db-password (stripped prefix) in output, got: %s", output)
+		}
+		if strings.Contains(output, "other-key") {
+			t.Errorf("should not show other-key (wrong prefix), got: %s", output)
+		}
+	})
+}
+
+func TestRunSecretGet_WithMock(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{
+			"db-password": "supersecret",
+		})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "get", "db-password", "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("secret get failed: %v", err)
+		}
+		if !strings.Contains(output, "supersecret") {
+			t.Errorf("expected secret value in output, got: %s", output)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		_, err := execTestCmd("secret", "get", "missing-secret", "--path", dir, "--env", "dev")
+		if err == nil {
+			t.Fatal("expected error for missing secret")
+		}
+	})
+}
+
+func TestRunSecretSet_WithMock(t *testing.T) {
+	t.Run("set with value arg", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "set", "new-secret", "myvalue", "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("secret set failed: %v", err)
+		}
+		if !strings.Contains(output, "updated successfully") {
+			t.Errorf("expected success message, got: %s", output)
+		}
+		if mock.secrets["new-secret"] != "myvalue" {
+			t.Errorf("expected secret to be set, got: %q", mock.secrets["new-secret"])
+		}
+	})
+
+	t.Run("dry-run", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "set", "new-secret", "myvalue", "--path", dir, "--env", "dev", "--dry-run")
+		if err != nil {
+			t.Fatalf("secret set --dry-run failed: %v", err)
+		}
+		if !strings.Contains(output, "Would set secret") {
+			t.Errorf("expected dry-run message, got: %s", output)
+		}
+		if _, exists := mock.secrets["new-secret"]; exists {
+			t.Error("secret should not be set in dry-run mode")
+		}
+	})
+}
+
+func TestRunSecretDelete_WithMock(t *testing.T) {
+	t.Run("without --yes flag shows preview", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{
+			"db-password": "secret",
+		})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "delete", "db-password", "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("secret delete preview failed: %v", err)
+		}
+		if !strings.Contains(output, "Would delete secret") {
+			t.Errorf("expected preview message, got: %s", output)
+		}
+		// Secret should still exist
+		if _, ok := mock.secrets["db-password"]; !ok {
+			t.Error("secret should still exist without --yes")
+		}
+	})
+
+	t.Run("with --yes deletes", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{
+			"db-password": "secret",
+		})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "delete", "db-password", "--yes", "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("secret delete failed: %v", err)
+		}
+		if !strings.Contains(output, "deleted") {
+			t.Errorf("expected deletion message, got: %s", output)
+		}
+		if _, ok := mock.secrets["db-password"]; ok {
+			t.Error("secret should have been deleted")
+		}
+	})
+}
+
+func TestRunSecretUnused_WithMock(t *testing.T) {
+	t.Run("finds unused secrets", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{
+			"db-password":   "secret",
+			"unused-secret": "unused",
+		})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": `
+database:
+  password: ${secret:db-password}
+`,
+			"config/dev.yaml": "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "unused", "--path", dir)
+		if err != nil {
+			t.Fatalf("secret unused failed: %v", err)
+		}
+		if !strings.Contains(output, "unused-secret") {
+			t.Errorf("expected unused-secret in output, got: %s", output)
+		}
+	})
+
+	t.Run("all secrets used", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{
+			"db-password": "secret",
+		})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": `
+database:
+  password: ${secret:db-password}
+`,
+			"config/dev.yaml": "app:\n  debug: true\n",
+		})
+
+		output, err := execTestCmd("secret", "unused", "--path", dir)
+		if err != nil {
+			t.Fatalf("secret unused failed: %v", err)
+		}
+		if !strings.Contains(output, "No unused secrets") {
+			t.Errorf("expected 'No unused secrets', got: %s", output)
+		}
+	})
+}
+
+func TestRunSecretImport_WithMock(t *testing.T) {
+	t.Run("dry run without --yes", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		envFile := filepath.Join(dir, "secrets.env")
+		os.WriteFile(envFile, []byte("DB_PASSWORD=secret123\nAPI_KEY=mykey\n"), 0644)
+
+		output, err := execTestCmd("secret", "import", envFile, "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("secret import preview failed: %v", err)
+		}
+		if !strings.Contains(output, "2 secret(s) to import") {
+			t.Errorf("expected import preview, got: %s", output)
+		}
+		if !strings.Contains(output, "run with --yes") {
+			t.Errorf("expected --yes prompt, got: %s", output)
+		}
+		// Secrets should not be imported
+		if len(mock.secrets) != 0 {
+			t.Error("secrets should not be imported without --yes")
+		}
+	})
+
+	t.Run("with --yes imports", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: test\n",
+			"config/dev.yaml":  "app:\n  debug: true\n",
+		})
+
+		envFile := filepath.Join(dir, "secrets.env")
+		os.WriteFile(envFile, []byte("DB_PASSWORD=secret123\nAPI_KEY=mykey\n"), 0644)
+
+		output, err := execTestCmd("secret", "import", envFile, "--yes", "--path", dir, "--env", "dev")
+		if err != nil {
+			t.Fatalf("secret import failed: %v", err)
+		}
+		if !strings.Contains(output, "Imported") {
+			t.Errorf("expected import success messages, got: %s", output)
+		}
+		if mock.secrets["db-password"] != "secret123" {
+			t.Errorf("expected db-password=secret123, got: %q", mock.secrets["db-password"])
+		}
+		if mock.secrets["api-key"] != "mykey" {
+			t.Errorf("expected api-key=mykey, got: %q", mock.secrets["api-key"])
+		}
+	})
+}
+
+func TestRunCheckAll_WithMock(t *testing.T) {
+	mock := newMockSecretClient(map[string]string{
+		"db-password": "secret",
+		"api-key":     "key",
+	})
+	withMockGCPClient(t, mock)
+
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-project
+  staging:
+    gcp:
+      project: test-project
+defaults:
+  env: dev
+`,
+		"config/base.yaml": `
+database:
+  password: ${secret:db-password}
+`,
+		"config/dev.yaml": `
+app:
+  key: ${secret:api-key}
+`,
+		"config/staging.yaml": `
+app:
+  key: ${secret:api-key}
+`,
+	})
+
+	output, err := execTestCmd("check", "--all", "--path", dir)
+	if err != nil {
+		t.Fatalf("check --all failed: %v", err)
+	}
+	if !strings.Contains(output, "All environments validated") {
+		t.Errorf("expected success message, got: %s", output)
+	}
+}
+
+func TestRunResolve_WithSecrets_Mock(t *testing.T) {
+	mock := newMockSecretClient(map[string]string{
+		"db-password": "resolved-secret",
+	})
+	withMockGCPClient(t, mock)
+
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-project
+defaults:
+  env: dev
+`,
+		"config/base.yaml": `
+database:
+  host: localhost
+  password: ${secret:db-password}
+`,
+		"config/dev.yaml": "app:\n  debug: true\n",
+	})
+
+	output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "dotenv")
+	if err != nil {
+		t.Fatalf("resolve with secrets failed: %v", err)
+	}
+	if !strings.Contains(output, "DATABASE_PASSWORD=resolved-secret") {
+		t.Errorf("expected resolved secret value, got: %s", output)
+	}
+}
+
+func TestValidateEnvMapping(t *testing.T) {
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-dev
+env_mapping:
+  database.host: DB_HOST
+  nonexistent.key: MISSING_KEY
+defaults:
+  env: dev
+`,
+		"config/base.yaml": `
+database:
+  host: localhost
+`,
+		"config/dev.yaml": `
+app:
+  debug: true
+`,
+	})
+
+	output, err := execTestCmd("validate", "--path", dir)
+	if err != nil {
+		t.Fatalf("validate failed: %v", err)
+	}
+	if !strings.Contains(output, "nonexistent.key") {
+		t.Errorf("expected warning about unmapped key, got: %s", output)
+	}
+}
+
+func TestRunRun_DryRun_WithMock(t *testing.T) {
+	mock := newMockSecretClient(map[string]string{
+		"db-password": "secret123",
+	})
+	withMockGCPClient(t, mock)
+
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-project
+defaults:
+  env: dev
+`,
+		"config/base.yaml": `
+database:
+  host: localhost
+  password: ${secret:db-password}
+`,
+		"config/dev.yaml": "app:\n  debug: true\n",
+	})
+
+	output, err := execTestCmd("run", "--dry-run", "-p", dir, "-e", "dev", "--", "echo", "hello")
+	if err != nil {
+		t.Fatalf("run --dry-run failed: %v", err)
+	}
+	if !strings.Contains(output, "Dry run") {
+		t.Errorf("expected 'Dry run' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "DATABASE_HOST=localhost") {
+		t.Errorf("expected DATABASE_HOST=localhost, got: %s", output)
+	}
+	if !strings.Contains(output, "Command:") {
+		t.Errorf("expected command display, got: %s", output)
+	}
 }

@@ -17,7 +17,7 @@ const (
 
 // GCPClientResult holds a GCP client and its cleanup function
 type GCPClientResult struct {
-	Client *secrets.GCPClient
+	Client secrets.Client
 	Cancel context.CancelFunc
 }
 
@@ -31,8 +31,16 @@ func (r *GCPClientResult) Close() {
 	}
 }
 
+// newGCPClientFunc is the function used to create GCP clients.
+// Tests can override this to inject mocks.
+var newGCPClientFunc = defaultNewGCPClient
+
 // newGCPClient creates a new GCP Secret Manager client with the given timeout
 func newGCPClient(timeout time.Duration) (*GCPClientResult, context.Context, error) {
+	return newGCPClientFunc(timeout)
+}
+
+func defaultNewGCPClient(timeout time.Duration) (*GCPClientResult, context.Context, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
 	client, err := secrets.New(ctx)
