@@ -52,3 +52,9 @@ homebrew_casks:
       - coffer
     homepage: "https://github.com/sultano/coffer"
     description: "CLI tool for managing application configuration with GCP Secret Manager integration"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/coffer"]
+          end
