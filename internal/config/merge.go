@@ -1,6 +1,9 @@
 package config
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // DeepMerge merges src into dst recursively.
 // Values in src override values in dst.
@@ -63,6 +66,8 @@ func flattenRecursive(m map[string]any, prefix string, result map[string]string)
 			result[key] = val
 		case int, int64, float64, bool:
 			result[key] = toString(val)
+		case []any:
+			result[key] = joinSlice(val)
 		case nil:
 			result[key] = ""
 		default:
@@ -84,9 +89,19 @@ func toString(v any) string {
 		return strconv.FormatFloat(val, 'f', -1, 64)
 	case bool:
 		return strconv.FormatBool(val)
+	case []any:
+		return joinSlice(val)
 	case nil:
 		return ""
 	default:
 		return ""
 	}
+}
+
+func joinSlice(s []any) string {
+	parts := make([]string, len(s))
+	for i, elem := range s {
+		parts[i] = toString(elem)
+	}
+	return strings.Join(parts, ",")
 }
