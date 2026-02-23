@@ -133,7 +133,7 @@ func ParseSecretRef(refStr string) SecretRef {
 	return ref
 }
 
-// FindSecretRefs finds all secret references in a config map
+// FindSecretRefs finds all secret references in a flat config map
 func FindSecretRefs(config map[string]string) []SecretRef {
 	refs := make([]SecretRef, 0)
 	seen := make(map[string]bool)
@@ -150,4 +150,58 @@ func FindSecretRefs(config map[string]string) []SecretRef {
 	}
 
 	return refs
+}
+
+// FindSecretRefsNested finds all secret references in a nested config map
+func FindSecretRefsNested(config map[string]any) []SecretRef {
+	refs := make([]SecretRef, 0)
+	seen := make(map[string]bool)
+	findSecretRefsRecursive(config, seen, &refs)
+	return refs
+}
+
+func findSecretRefsRecursive(config map[string]any, seen map[string]bool, refs *[]SecretRef) {
+	for _, value := range config {
+		switch v := value.(type) {
+		case string:
+			matches := secretRefPattern.FindAllStringSubmatch(v, -1)
+			for _, match := range matches {
+				refStr := match[1]
+				if !seen[refStr] {
+					seen[refStr] = true
+					*refs = append(*refs, ParseSecretRef(refStr))
+				}
+			}
+		case map[string]any:
+			findSecretRefsRecursive(v, seen, refs)
+		}
+	}
+}
+
+// ResolveAllNested resolves all secret references in a nested config map
+func (r *Resolver) ResolveAllNested(ctx context.Context, config map[string]any) (map[string]any, error) {
+	return r.resolveNestedRecursive(ctx, config)
+}
+
+func (r *Resolver) resolveNestedRecursive(ctx context.Context, config map[string]any) (map[string]any, error) {
+	result := make(map[string]any, len(config))
+	for key, value := range config {
+		switch v := value.(type) {
+		case string:
+			resolved, err := r.ResolveValue(ctx, v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve %s: %w", key, err)
+			}
+			result[key] = resolved
+		case map[string]any:
+			resolved, err := r.resolveNestedRecursive(ctx, v)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = resolved
+		default:
+			result[key] = v
+		}
+	}
+	return result, nil
 }

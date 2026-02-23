@@ -52,6 +52,42 @@ coffer secret set db-password "supersecret"
 coffer run -- node server.js
 ```
 
+## Usage
+
+Coffer resolves your config and secrets, then injects them as environment variables into a child process. It forwards signals and propagates the exit code.
+
+### Process wrapping
+
+```bash
+coffer run --env prod -- node server.js
+```
+
+### Docker entrypoint
+
+Install coffer in your image and use it as the entrypoint prefix:
+
+```dockerfile
+ENTRYPOINT ["coffer", "run", "--env", "prod", "--"]
+CMD ["node", "server.js"]
+```
+
+Authenticate via workload identity or a mounted service account key (`GOOGLE_APPLICATION_CREDENTIALS`).
+
+### Docker Compose with .env file
+
+Generate a `.env` file for compose:
+
+```bash
+coffer resolve --env prod -f dotenv > .env
+docker compose up
+```
+
+### Shell export
+
+```bash
+eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
+```
+
 ## Command Reference
 
 | Command | Description |

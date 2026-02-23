@@ -301,6 +301,146 @@ func TestResolver_TracksSecretCalls(t *testing.T) {
 	}
 }
 
+func TestFindSecretRefsNested(t *testing.T) {
+	t.Run("finds refs in nested config", func(t *testing.T) {
+		config := map[string]any{
+			"database": map[string]any{
+				"host":     "localhost",
+				"password": "${secret:db-password}",
+			},
+			"api": map[string]any{
+				"key": "${secret:api-key@2}",
+			},
+			"plain": "value",
+		}
+
+		refs := FindSecretRefsNested(config)
+
+		if len(refs) != 2 {
+			t.Errorf("FindSecretRefsNested() returned %d refs, want 2", len(refs))
+		}
+
+		names := make(map[string]bool)
+		for _, ref := range refs {
+			names[ref.Name] = true
+		}
+		if !names["db-password"] {
+			t.Error("expected to find db-password ref")
+		}
+		if !names["api-key"] {
+			t.Error("expected to find api-key ref")
+		}
+	})
+
+	t.Run("deduplicates refs", func(t *testing.T) {
+		config := map[string]any{
+			"a": map[string]any{
+				"x": "${secret:same}",
+			},
+			"b": map[string]any{
+				"y": "${secret:same}",
+			},
+		}
+
+		refs := FindSecretRefsNested(config)
+		if len(refs) != 1 {
+			t.Errorf("expected 1 deduplicated ref, got %d", len(refs))
+		}
+	})
+
+	t.Run("returns empty for no refs", func(t *testing.T) {
+		config := map[string]any{
+			"app": map[string]any{
+				"name": "test",
+				"port": 8080,
+			},
+		}
+
+		refs := FindSecretRefsNested(config)
+		if len(refs) != 0 {
+			t.Errorf("expected 0 refs, got %d", len(refs))
+		}
+	})
+}
+
+func TestResolver_ResolveAllNested(t *testing.T) {
+	provider := NewMockProvider(map[string]string{
+		"db-password": "secret-pass",
+		"api-key":     "api-123",
+	})
+	resolver := New(provider, "test-project", "")
+	ctx := context.Background()
+
+	t.Run("resolves secrets in nested config", func(t *testing.T) {
+		config := map[string]any{
+			"database": map[string]any{
+				"host":     "localhost",
+				"password": "${secret:db-password}",
+			},
+			"api": map[string]any{
+				"key": "${secret:api-key}",
+			},
+			"plain": "value",
+			"port":  8080,
+		}
+
+		result, err := resolver.ResolveAllNested(ctx, config)
+		if err != nil {
+			t.Fatalf("ResolveAllNested failed: %v", err)
+		}
+
+		db := result["database"].(map[string]any)
+		if db["host"] != "localhost" {
+			t.Errorf("database.host = %v, want localhost", db["host"])
+		}
+		if db["password"] != "secret-pass" {
+			t.Errorf("database.password = %v, want secret-pass", db["password"])
+		}
+
+		api := result["api"].(map[string]any)
+		if api["key"] != "api-123" {
+			t.Errorf("api.key = %v, want api-123", api["key"])
+		}
+
+		if result["plain"] != "value" {
+			t.Errorf("plain = %v, want value", result["plain"])
+		}
+		if result["port"] != 8080 {
+			t.Errorf("port = %v, want 8080", result["port"])
+		}
+	})
+
+	t.Run("returns error for missing secret", func(t *testing.T) {
+		config := map[string]any{
+			"key": "${secret:nonexistent}",
+		}
+
+		_, err := resolver.ResolveAllNested(ctx, config)
+		if err == nil {
+			t.Fatal("expected error for missing secret")
+		}
+	})
+
+	t.Run("does not mutate input", func(t *testing.T) {
+		config := map[string]any{
+			"db": map[string]any{
+				"pass": "${secret:db-password}",
+			},
+		}
+
+		_, err := resolver.ResolveAllNested(ctx, config)
+		if err != nil {
+			t.Fatalf("ResolveAllNested failed: %v", err)
+		}
+
+		// Original should be unchanged
+		db := config["db"].(map[string]any)
+		if db["pass"] != "${secret:db-password}" {
+			t.Errorf("input was mutated: db.pass = %v", db["pass"])
+		}
+	})
+}
+
 func TestResolver_SecretPrefix(t *testing.T) {
 	provider := NewMockProvider(map[string]string{
 		"service-a-db-password": "prefixed-secret-value",

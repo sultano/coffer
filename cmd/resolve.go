@@ -39,15 +39,60 @@ func runResolve(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Flatten config to key-value pairs
+	switch outputFormat {
+	case "dotenv", "env":
+		return resolveFlatOutput(loaded)
+	case "json", "yaml":
+		return resolveNestedOutput(loaded, outputFormat)
+	default:
+		return fmt.Errorf("unsupported format: %s (use json, yaml, or dotenv)", outputFormat)
+	}
+}
+
+// resolveNestedOutput outputs the nested config structure with secrets resolved
+func resolveNestedOutput(loaded *config.LoadedConfig, format string) error {
+	values := loaded.Values
+
+	refs := resolver.FindSecretRefsNested(values)
+	if len(refs) > 0 && !dryRun {
+		gcpProject := loaded.GetGCPProject()
+		if gcpProject == "" {
+			return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
+		}
+
+		gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
+		if err != nil {
+			return err
+		}
+		defer gcpResult.Close()
+
+		secretPrefix := loaded.GetSecretPrefix()
+		r := resolver.New(gcpResult.Client, gcpProject, secretPrefix)
+		resolved, err := r.ResolveAllNested(ctx, values)
+		if err != nil {
+			return err
+		}
+		values = resolved
+	}
+
+	switch format {
+	case "json":
+		return outputNestedJSON(values)
+	case "yaml":
+		return outputNestedYAML(values)
+	default:
+		return fmt.Errorf("unsupported format: %s", format)
+	}
+}
+
+// resolveFlatOutput outputs flat env var key-value pairs (for dotenv format)
+func resolveFlatOutput(loaded *config.LoadedConfig) error {
 	flat := config.Flatten(loaded.Values)
 
-	// Check if there are any secret references
 	refs := resolver.FindSecretRefs(flat)
 
 	var resolved map[string]string
 	if len(refs) > 0 && !dryRun {
-		// Resolve secrets from GCP
 		gcpProject := loaded.GetGCPProject()
 		if gcpProject == "" {
 			return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
@@ -69,27 +114,12 @@ func runResolve(cmd *cobra.Command, args []string) error {
 		resolved = flat
 	}
 
-	// Apply env var mapping
 	envVars := config.ToEnvVars(resolved, loaded.Project.EnvMapping)
-
-	return outputResult(envVars, outputFormat)
+	return outputDotenv(envVars)
 }
 
-func outputResult(envVars map[string]string, format string) error {
-	switch format {
-	case "json":
-		return outputJSON(envVars)
-	case "yaml":
-		return outputYAML(envVars)
-	case "dotenv", "env":
-		return outputDotenv(envVars)
-	default:
-		return fmt.Errorf("unsupported format: %s (use json, yaml, or dotenv)", format)
-	}
-}
-
-func outputJSON(envVars map[string]string) error {
-	data, err := json.MarshalIndent(envVars, "", "  ")
+func outputNestedJSON(values map[string]any) error {
+	data, err := json.MarshalIndent(values, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -97,8 +127,8 @@ func outputJSON(envVars map[string]string) error {
 	return nil
 }
 
-func outputYAML(envVars map[string]string) error {
-	data, err := yaml.Marshal(envVars)
+func outputNestedYAML(values map[string]any) error {
+	data, err := yaml.Marshal(values)
 	if err != nil {
 		return err
 	}

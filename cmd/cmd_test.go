@@ -124,32 +124,42 @@ database:
 	envName = ""
 	projectPath = dir
 
-	t.Run("outputs json format", func(t *testing.T) {
+	t.Run("outputs nested json format", func(t *testing.T) {
 		output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "json")
 		if err != nil {
 			t.Fatalf("resolve failed: %v", err)
 		}
 
-		if !strings.Contains(output, `"DB_HOST"`) {
-			t.Errorf("output should contain DB_HOST mapping, got: %s", output)
+		// JSON should contain nested structure, not flat env vars
+		if !strings.Contains(output, `"database"`) {
+			t.Errorf("output should contain nested 'database' key, got: %s", output)
+		}
+		if !strings.Contains(output, `"host"`) {
+			t.Errorf("output should contain nested 'host' key, got: %s", output)
 		}
 		if !strings.Contains(output, "dev-db") {
 			t.Errorf("output should contain dev-db (from dev.yaml), got: %s", output)
 		}
+		if strings.Contains(output, "DB_HOST") {
+			t.Errorf("nested JSON should not contain env var names like DB_HOST, got: %s", output)
+		}
 	})
 
-	t.Run("outputs yaml format", func(t *testing.T) {
+	t.Run("outputs nested yaml format", func(t *testing.T) {
 		output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "yaml")
 		if err != nil {
 			t.Fatalf("resolve failed: %v", err)
 		}
 
-		if !strings.Contains(output, "DB_HOST:") {
-			t.Errorf("output should contain DB_HOST:, got: %s", output)
+		if !strings.Contains(output, "database:") {
+			t.Errorf("output should contain nested 'database:', got: %s", output)
+		}
+		if !strings.Contains(output, "host: dev-db") {
+			t.Errorf("output should contain 'host: dev-db', got: %s", output)
 		}
 	})
 
-	t.Run("outputs dotenv format", func(t *testing.T) {
+	t.Run("outputs dotenv format with env var mapping", func(t *testing.T) {
 		output, err := execTestCmd("resolve", "--path", dir, "--env", "dev", "--format", "dotenv")
 		if err != nil {
 			t.Fatalf("resolve failed: %v", err)
@@ -927,89 +937,90 @@ func TestUnquoteValue(t *testing.T) {
 	}
 }
 
-func TestOutputResult(t *testing.T) {
+func TestOutputNestedJSON(t *testing.T) {
+	values := map[string]any{
+		"app": map[string]any{
+			"name": "testapp",
+			"port": 8080,
+		},
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := outputNestedJSON(values)
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	if _, copyErr := io.Copy(&buf, r); copyErr != nil {
+		t.Fatalf("failed to read output: %v", copyErr)
+	}
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, `"app"`) || !strings.Contains(output, `"name"`) || !strings.Contains(output, `"testapp"`) {
+		t.Errorf("expected nested JSON output, got: %s", output)
+	}
+}
+
+func TestOutputNestedYAML(t *testing.T) {
+	values := map[string]any{
+		"app": map[string]any{
+			"name": "testapp",
+		},
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := outputNestedYAML(values)
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	if _, copyErr := io.Copy(&buf, r); copyErr != nil {
+		t.Fatalf("failed to read output: %v", copyErr)
+	}
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "app:") || !strings.Contains(output, "name: testapp") {
+		t.Errorf("expected nested YAML output, got: %s", output)
+	}
+}
+
+func TestOutputDotenv(t *testing.T) {
 	envVars := map[string]string{
 		"KEY": "value",
 	}
 
-	t.Run("json format", func(t *testing.T) {
-		oldStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
 
-		err := outputResult(envVars, "json")
+	err := outputDotenv(envVars)
 
-		_ = w.Close()
-		os.Stdout = oldStdout
-		var buf bytes.Buffer
-		if _, copyErr := io.Copy(&buf, r); copyErr != nil {
-			t.Fatalf("failed to read output: %v", copyErr)
-		}
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	if _, copyErr := io.Copy(&buf, r); copyErr != nil {
+		t.Fatalf("failed to read output: %v", copyErr)
+	}
 
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		output := buf.String()
-		if !strings.Contains(output, `"KEY"`) || !strings.Contains(output, `"value"`) {
-			t.Errorf("expected JSON with KEY:value, got: %s", output)
-		}
-	})
-
-	t.Run("yaml format", func(t *testing.T) {
-		oldStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-
-		err := outputResult(envVars, "yaml")
-
-		_ = w.Close()
-		os.Stdout = oldStdout
-		var buf bytes.Buffer
-		if _, copyErr := io.Copy(&buf, r); copyErr != nil {
-			t.Fatalf("failed to read output: %v", copyErr)
-		}
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		output := buf.String()
-		if !strings.Contains(output, "KEY:") {
-			t.Errorf("expected YAML with KEY:, got: %s", output)
-		}
-	})
-
-	t.Run("dotenv format", func(t *testing.T) {
-		oldStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-
-		err := outputResult(envVars, "dotenv")
-
-		_ = w.Close()
-		os.Stdout = oldStdout
-		var buf bytes.Buffer
-		if _, copyErr := io.Copy(&buf, r); copyErr != nil {
-			t.Fatalf("failed to read output: %v", copyErr)
-		}
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		output := buf.String()
-		if !strings.Contains(output, "KEY=value") {
-			t.Errorf("expected dotenv KEY=value, got: %s", output)
-		}
-	})
-
-	t.Run("unsupported format", func(t *testing.T) {
-		err := outputResult(envVars, "xml")
-		if err == nil {
-			t.Fatal("expected error for unsupported format")
-		}
-		if !strings.Contains(err.Error(), "unsupported format") {
-			t.Errorf("expected 'unsupported format' error, got: %v", err)
-		}
-	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "KEY=value") {
+		t.Errorf("expected dotenv KEY=value, got: %s", output)
+	}
 }
 
 func TestPrintDryRun(t *testing.T) {
