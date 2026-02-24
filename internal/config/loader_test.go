@@ -335,6 +335,30 @@ app:
 		}
 	})
 
+	t.Run("rejects invalid environment name", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+`,
+			"config/base.yaml": `
+app:
+  name: myapp
+`,
+		})
+
+		for _, env := range []string{"../secrets", "foo/bar", "", ".hidden"} {
+			t.Setenv("COFFER_ENV", env)
+			_, err := Load(dir, "")
+			if err == nil {
+				t.Errorf("expected error for invalid env name %q", env)
+			}
+		}
+	})
+
 	t.Run("returns error for missing base config", func(t *testing.T) {
 		dir := setupTestProject(t, map[string]string{
 			".coffer.yaml": `

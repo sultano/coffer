@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
+
+var validEnvName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 const (
 	ProjectFileName = ".coffer.yaml"
@@ -57,6 +60,9 @@ func Load(projectRoot, environment string) (*LoadedConfig, error) {
 	env := resolveEnvironment(environment, project)
 	if env == "" {
 		return nil, fmt.Errorf("no environment specified - use --env flag, set COFFER_ENV, or set defaults.env in %s", ProjectFileName)
+	}
+	if !validEnvName.MatchString(env) {
+		return nil, fmt.Errorf("invalid environment name %q - must be alphanumeric with hyphens, underscores, or dots", env)
 	}
 
 	configDir := filepath.Join(projectRoot, project.Config.Path)

@@ -126,10 +126,15 @@ eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
 | Flag | Description |
 |------|-------------|
 | `-e, --env <name>` | Environment name (dev, staging, prod) |
-| `COFFER_ENV` | Environment name (alternative to `--env` flag) |
 | `-p, --path <dir>` | Path to project directory |
 | `--dry-run` | Preview changes without applying |
 | `--no-color` | Disable colored output |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `COFFER_ENV` | Environment name (alternative to `--env` flag) |
 
 ## Configuration
 
