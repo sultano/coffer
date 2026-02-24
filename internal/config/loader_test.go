@@ -222,6 +222,119 @@ app:
 		}
 	})
 
+	t.Run("COFFER_ENV used when flag is empty", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  staging:
+    gcp:
+      project: test-staging
+`,
+			"config/base.yaml": `
+app:
+  name: myapp
+`,
+			"config/staging.yaml": `
+app:
+  env: staging
+`,
+		})
+
+		t.Setenv("COFFER_ENV", "staging")
+
+		loaded, err := Load(dir, "")
+		if err != nil {
+			t.Fatalf("Load failed: %v", err)
+		}
+
+		if loaded.Environment != "staging" {
+			t.Errorf("Environment = %q, want staging", loaded.Environment)
+		}
+	})
+
+	t.Run("flag overrides COFFER_ENV", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  staging:
+    gcp:
+      project: test-staging
+  prod:
+    gcp:
+      project: test-prod
+`,
+			"config/base.yaml": `
+app:
+  name: myapp
+`,
+			"config/prod.yaml": `
+app:
+  env: prod
+`,
+		})
+
+		t.Setenv("COFFER_ENV", "staging")
+
+		loaded, err := Load(dir, "prod")
+		if err != nil {
+			t.Fatalf("Load failed: %v", err)
+		}
+
+		if loaded.Environment != "prod" {
+			t.Errorf("Environment = %q, want prod", loaded.Environment)
+		}
+	})
+
+	t.Run("COFFER_ENV overrides defaults.env", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-dev
+  prod:
+    gcp:
+      project: test-prod
+defaults:
+  env: dev
+`,
+			"config/base.yaml": `
+app:
+  name: myapp
+`,
+			"config/prod.yaml": `
+app:
+  env: prod
+`,
+		})
+
+		t.Setenv("COFFER_ENV", "prod")
+
+		loaded, err := Load(dir, "")
+		if err != nil {
+			t.Fatalf("Load failed: %v", err)
+		}
+
+		if loaded.Environment != "prod" {
+			t.Errorf("Environment = %q, want prod", loaded.Environment)
+		}
+	})
+
 	t.Run("returns error for missing base config", func(t *testing.T) {
 		dir := setupTestProject(t, map[string]string{
 			".coffer.yaml": `

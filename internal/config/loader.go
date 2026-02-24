@@ -56,7 +56,7 @@ func Load(projectRoot, environment string) (*LoadedConfig, error) {
 	// Resolve environment from flag, project defaults, or error
 	env := resolveEnvironment(environment, project)
 	if env == "" {
-		return nil, fmt.Errorf("no environment specified - use --env flag or set defaults.env in %s", ProjectFileName)
+		return nil, fmt.Errorf("no environment specified - use --env flag, set COFFER_ENV, or set defaults.env in %s", ProjectFileName)
 	}
 
 	configDir := filepath.Join(projectRoot, project.Config.Path)
@@ -103,6 +103,9 @@ func Load(projectRoot, environment string) (*LoadedConfig, error) {
 func resolveEnvironment(flagEnv string, project *ProjectConfig) string {
 	if flagEnv != "" {
 		return flagEnv
+	}
+	if envVar := os.Getenv("COFFER_ENV"); envVar != "" {
+		return envVar
 	}
 	return project.Defaults.Env
 }

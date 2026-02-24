@@ -64,21 +64,33 @@ coffer run --env prod -- node server.js
 
 ### Docker entrypoint
 
-Install coffer in your image and use it as the entrypoint prefix:
+Install coffer in your image and use it as the entrypoint prefix. Secrets are resolved at container startup, not build time:
 
 ```dockerfile
-ENTRYPOINT ["coffer", "run", "--env", "prod", "--"]
+ENTRYPOINT ["coffer", "run", "--"]
 CMD ["node", "server.js"]
 ```
 
-Authenticate via workload identity or a mounted service account key (`GOOGLE_APPLICATION_CREDENTIALS`).
+Set the environment using `COFFER_ENV`, `defaults.env` in `.coffer.yaml`, or override the entrypoint to pass `--env`:
 
-### Docker Compose with .env file
+```bash
+# Dev — with local credentials mounted
+docker run -e COFFER_ENV=dev \
+  -v ~/.config/gcloud:/root/.config/gcloud \
+  myapp
 
-Generate a `.env` file for compose:
+# Prod — with workload identity or service account key
+docker run -e COFFER_ENV=prod myapp
+```
+
+### Generate config files
+
+Write resolved config to a file for your app or tools like Docker Compose:
 
 ```bash
 coffer resolve --env prod -f dotenv > .env
+coffer resolve --env prod -f json > config.json
+coffer resolve --env prod -f yaml > config.yaml
 docker compose up
 ```
 
@@ -114,6 +126,7 @@ eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
 | Flag | Description |
 |------|-------------|
 | `-e, --env <name>` | Environment name (dev, staging, prod) |
+| `COFFER_ENV` | Environment name (alternative to `--env` flag) |
 | `-p, --path <dir>` | Path to project directory |
 | `--dry-run` | Preview changes without applying |
 | `--no-color` | Disable colored output |
