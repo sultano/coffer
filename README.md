@@ -64,10 +64,10 @@ coffer run --env prod -- node server.js
 
 ### Docker entrypoint
 
-Install coffer in your image and use it as the entrypoint prefix. Secrets are resolved at container startup, not build time:
+Install coffer in your image and use it as the entrypoint prefix. Secrets are resolved at container startup, not build time. Use `--config-file` to write the full resolved config for your app to read, while secrets are injected as env vars:
 
 ```dockerfile
-ENTRYPOINT ["coffer", "run", "--"]
+ENTRYPOINT ["coffer", "run", "--config-file", "/app/config.json", "--"]
 CMD ["node", "server.js"]
 ```
 
