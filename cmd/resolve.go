@@ -11,7 +11,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var outputFormat string
+var (
+	outputFormat string
+	secretsOnly  bool
+)
 
 var resolveCmd = &cobra.Command{
 	Use:   "resolve",
@@ -26,6 +29,7 @@ then resolves all secret references from GCP Secret Manager.`,
 func init() {
 	rootCmd.AddCommand(resolveCmd)
 	resolveCmd.Flags().StringVarP(&outputFormat, "format", "f", "json", "output format: json, yaml, or dotenv")
+	resolveCmd.Flags().BoolVar(&secretsOnly, "secrets-only", false, "only output values containing secret references (dotenv format only)")
 }
 
 func runResolve(cmd *cobra.Command, args []string) error {
@@ -112,6 +116,12 @@ func resolveFlatOutput(loaded *config.LoadedConfig) error {
 		}
 	} else {
 		resolved = flat
+	}
+
+	// BEHAVIOR: dotenv outputs all values by default; --secrets-only filters to secret keys only
+	if secretsOnly {
+		secretKeys := resolver.KeysWithSecretRefs(flat)
+		resolved = filterByKeys(resolved, secretKeys)
 	}
 
 	envVars := config.ToEnvVars(resolved, loaded.Project.EnvMapping)

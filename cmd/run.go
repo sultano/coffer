@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"syscall"
 
@@ -12,6 +14,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/sultano/coffer/internal/config"
 	"github.com/sultano/coffer/internal/resolver"
+	"gopkg.in/yaml.v3"
+)
+
+var (
+	configFile string
+	includeAll bool
 )
 
 var runCmd = &cobra.Command{
@@ -20,7 +28,11 @@ var runCmd = &cobra.Command{
 	Long: `Run a command with configuration and secrets injected as environment variables.
 
 Coffer merges your config files, resolves secret references from GCP Secret Manager,
-and runs your command with all values available as environment variables.`,
+and runs your command with all values available as environment variables.
+
+By default, only values containing secret references are injected as env vars.
+Use --all to inject all config values. Use --config-file to write the full
+resolved config to a file for the app to read.`,
 	DisableFlagParsing: true,
 	RunE:               runRun,
 }
@@ -30,7 +42,6 @@ func init() {
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
-	// Parse flags manually since we disabled flag parsing
 	cmdArgs, err := parseRunArgs(args)
 	if err != nil {
 		return err
@@ -79,14 +90,110 @@ func runRun(cmd *cobra.Command, args []string) error {
 		resolved = flat
 	}
 
-	// Apply env var mapping
-	envVars := config.ToEnvVars(resolved, loaded.Project.EnvMapping)
+	// BEHAVIOR: By default only keys with secret references become env vars
+	// Use --all to inject all config values as env vars
+	envResolved := resolved
+	if !includeAll {
+		secretKeys := resolver.KeysWithSecretRefs(flat)
+		envResolved = filterByKeys(resolved, secretKeys)
+	}
+
+	envVars := config.ToEnvVars(envResolved, loaded.Project.EnvMapping)
+
+	// Write config file if requested
+	if configFile != "" {
+		if err := writeConfigFile(loaded, configFile); err != nil {
+			return err
+		}
+	}
 
 	if dryRun {
+		if configFile != "" {
+			format, _ := formatFromPath(configFile)
+			fmt.Printf("Config file: %s (format: %s)\n", configFile, format)
+			fmt.Println()
+		}
 		return printDryRun(envVars, cmdArgs)
 	}
 
 	return executeCommand(cmdArgs, envVars)
+}
+
+func writeConfigFile(loaded *config.LoadedConfig, path string) error {
+	format, err := formatFromPath(path)
+	if err != nil {
+		return err
+	}
+
+	values := loaded.Values
+
+	// Resolve secrets in nested config
+	refs := resolver.FindSecretRefsNested(values)
+	if len(refs) > 0 && !dryRun {
+		gcpProject := loaded.GetGCPProject()
+		if gcpProject == "" {
+			return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
+		}
+
+		gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
+		if err != nil {
+			return err
+		}
+		defer gcpResult.Close()
+
+		secretPrefix := loaded.GetSecretPrefix()
+		r := resolver.New(gcpResult.Client, gcpProject, secretPrefix)
+		resolved, err := r.ResolveAllNested(ctx, values)
+		if err != nil {
+			return err
+		}
+		values = resolved
+	}
+
+	if dryRun {
+		return nil
+	}
+
+	data, err := marshalConfig(values, format)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0600)
+}
+
+func formatFromPath(path string) (string, error) {
+	ext := filepath.Ext(path)
+	switch ext {
+	case ".yaml", ".yml":
+		return "yaml", nil
+	case ".json":
+		return "json", nil
+	default:
+		return "", fmt.Errorf("unsupported config file extension %q (use .yaml, .yml, or .json)", ext)
+	}
+}
+
+func marshalConfig(values map[string]any, format string) ([]byte, error) {
+	switch format {
+	case "yaml":
+		return yaml.Marshal(values)
+	case "json":
+		return json.MarshalIndent(values, "", "  ")
+	default:
+		return nil, fmt.Errorf("unsupported format: %s", format)
+	}
+}
+
+// filterByKeys returns a new map containing only the keys present in the keys set
+func filterByKeys(m map[string]string, keys map[string]bool) map[string]string {
+	result := make(map[string]string, len(keys))
+	for k, v := range m {
+		if keys[k] {
+			result[k] = v
+		}
+	}
+	return result
 }
 
 func parseRunArgs(args []string) ([]string, error) {
@@ -106,6 +213,13 @@ func parseRunArgs(args []string) ([]string, error) {
 						projectPath = args[j+1]
 						j++
 					}
+				case "-c", "--config-file":
+					if j+1 < i {
+						configFile = args[j+1]
+						j++
+					}
+				case "--all":
+					includeAll = true
 				case "--dry-run":
 					dryRun = true
 				case "--no-color":

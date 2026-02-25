@@ -133,6 +133,17 @@ func ParseSecretRef(refStr string) SecretRef {
 	return ref
 }
 
+// KeysWithSecretRefs returns the set of keys whose values contain secret references
+func KeysWithSecretRefs(config map[string]string) map[string]bool {
+	keys := make(map[string]bool)
+	for key, value := range config {
+		if ContainsSecretRef(value) {
+			keys[key] = true
+		}
+	}
+	return keys
+}
+
 // FindSecretRefs finds all secret references in a flat config map
 func FindSecretRefs(config map[string]string) []SecretRef {
 	refs := make([]SecretRef, 0)
