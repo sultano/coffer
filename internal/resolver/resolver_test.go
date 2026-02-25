@@ -74,6 +74,37 @@ func TestParseSecretRef(t *testing.T) {
 	}
 }
 
+func TestKeysWithSecretRefs(t *testing.T) {
+	config := map[string]string{
+		"database.host":     "localhost",
+		"database.password": "${secret:db-password}",
+		"api.key":           "${secret:api-key@2}",
+		"plain":             "value",
+		"mixed":             "prefix-${secret:mixed-secret}-suffix",
+	}
+
+	keys := KeysWithSecretRefs(config)
+
+	if len(keys) != 3 {
+		t.Errorf("KeysWithSecretRefs() returned %d keys, want 3", len(keys))
+	}
+	if !keys["database.password"] {
+		t.Error("expected database.password to be a secret key")
+	}
+	if !keys["api.key"] {
+		t.Error("expected api.key to be a secret key")
+	}
+	if !keys["mixed"] {
+		t.Error("expected mixed to be a secret key")
+	}
+	if keys["database.host"] {
+		t.Error("database.host should not be a secret key")
+	}
+	if keys["plain"] {
+		t.Error("plain should not be a secret key")
+	}
+}
+
 func TestFindSecretRefs(t *testing.T) {
 	config := map[string]string{
 		"database.host":     "localhost",

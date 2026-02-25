@@ -11,7 +11,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var outputFormat string
+var (
+	outputFormat string
+	secretsOnly  bool
+)
 
 var resolveCmd = &cobra.Command{
 	Use:   "resolve",
@@ -26,6 +29,7 @@ then resolves all secret references from GCP Secret Manager.`,
 func init() {
 	rootCmd.AddCommand(resolveCmd)
 	resolveCmd.Flags().StringVarP(&outputFormat, "format", "f", "json", "output format: json, yaml, or dotenv")
+	resolveCmd.Flags().BoolVar(&secretsOnly, "secrets-only", false, "only output values containing secret references (dotenv format only)")
 }
 
 func runResolve(cmd *cobra.Command, args []string) error {
@@ -37,6 +41,10 @@ func runResolve(cmd *cobra.Command, args []string) error {
 	loaded, err := config.Load(projectRoot, envName)
 	if err != nil {
 		return err
+	}
+
+	if secretsOnly && outputFormat != "dotenv" && outputFormat != "env" {
+		return fmt.Errorf("--secrets-only is only supported with dotenv format")
 	}
 
 	switch outputFormat {
@@ -51,28 +59,9 @@ func runResolve(cmd *cobra.Command, args []string) error {
 
 // resolveNestedOutput outputs the nested config structure with secrets resolved
 func resolveNestedOutput(loaded *config.LoadedConfig, format string) error {
-	values := loaded.Values
-
-	refs := resolver.FindSecretRefsNested(values)
-	if len(refs) > 0 && !dryRun {
-		gcpProject := loaded.GetGCPProject()
-		if gcpProject == "" {
-			return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
-		}
-
-		gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
-		if err != nil {
-			return err
-		}
-		defer gcpResult.Close()
-
-		secretPrefix := loaded.GetSecretPrefix()
-		r := resolver.New(gcpResult.Client, gcpProject, secretPrefix)
-		resolved, err := r.ResolveAllNested(ctx, values)
-		if err != nil {
-			return err
-		}
-		values = resolved
+	values, err := resolveNestedSecrets(loaded, loaded.Values)
+	if err != nil {
+		return err
 	}
 
 	switch format {
@@ -112,6 +101,12 @@ func resolveFlatOutput(loaded *config.LoadedConfig) error {
 		}
 	} else {
 		resolved = flat
+	}
+
+	// BEHAVIOR: dotenv outputs all values by default; --secrets-only filters to secret keys only
+	if secretsOnly {
+		secretKeys := resolver.KeysWithSecretRefs(flat)
+		resolved = filterByKeys(resolved, secretKeys)
 	}
 
 	envVars := config.ToEnvVars(resolved, loaded.Project.EnvMapping)
