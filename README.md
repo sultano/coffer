@@ -54,7 +54,7 @@ coffer run -- node server.js
 
 ## Usage
 
-Coffer resolves your config and secrets, then injects them as environment variables into a child process. It forwards signals and propagates the exit code.
+Coffer resolves your config and secrets, then injects them as environment variables into a child process. By default, only values containing secret references are injected as env vars. Use `--all` to inject all config values. You can also write the full resolved config to a file with `--config-file`. Coffer forwards signals and propagates the exit code.
 
 ### Process wrapping
 
@@ -105,7 +105,7 @@ eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
 | Command | Description |
 |---------|-------------|
 | `coffer init` | Initialize a new project |
-| `coffer run -- <cmd>` | Run a command with config injected as env vars |
+| `coffer run -- <cmd>` | Run a command with secrets injected as env vars |
 | `coffer resolve` | Output resolved config (JSON, YAML, or dotenv) |
 | `coffer get <key>` | Get a single config value |
 | `coffer check` | Validate all secrets exist in GCP |
@@ -128,6 +128,8 @@ eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
 | `-e, --env <name>` | Environment name (dev, staging, prod) |
 | `-p, --path <dir>` | Path to project directory |
 | `--dry-run` | Preview changes without applying |
+| `--all` | Inject all config values as env vars (default: secrets only) |
+| `--config-file <path>` | Write resolved config to a file (.json or .yaml) |
 | `--no-color` | Disable colored output |
 
 ### Environment Variables
@@ -213,13 +215,23 @@ Use `env_mapping` in `.coffer.yaml` to customize variable names.
 
 ### coffer run
 
-Run a command with configuration injected as environment variables:
+Run a command with configuration injected as environment variables. By default, only secret-containing values are injected:
 
 ```bash
 coffer run -- npm start
 coffer run --env prod -- ./deploy.sh
+coffer run --all -- node server.js       # Inject all config values, not just secrets
 coffer run --dry-run -- node server.js   # Preview env vars without running
 ```
+
+Use `--config-file` to write the full resolved config to a file for your app to read:
+
+```bash
+coffer run --config-file config.json -- node server.js
+coffer run --config-file config.yaml -- ./app
+```
+
+The file format is determined by the extension (`.json` or `.yaml`/`.yml`).
 
 ### coffer resolve
 
