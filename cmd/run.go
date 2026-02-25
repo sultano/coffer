@@ -100,9 +100,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	envVars := config.ToEnvVars(envResolved, loaded.Project.EnvMapping)
 
-	// Write config file if requested
+	// Validate config file extension early (before dry-run or write)
 	if configFile != "" {
-		if err := writeConfigFile(loaded, configFile); err != nil {
+		if _, err := formatFromPath(configFile); err != nil {
 			return err
 		}
 	}
@@ -116,6 +116,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return printDryRun(envVars, cmdArgs)
 	}
 
+	// Write config file if requested (only when not dry-run)
+	if configFile != "" {
+		if err := writeConfigFile(loaded, configFile); err != nil {
+			return err
+		}
+	}
+
 	return executeCommand(cmdArgs, envVars)
 }
 
@@ -125,33 +132,9 @@ func writeConfigFile(loaded *config.LoadedConfig, path string) error {
 		return err
 	}
 
-	values := loaded.Values
-
-	// Resolve secrets in nested config
-	refs := resolver.FindSecretRefsNested(values)
-	if len(refs) > 0 && !dryRun {
-		gcpProject := loaded.GetGCPProject()
-		if gcpProject == "" {
-			return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
-		}
-
-		gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
-		if err != nil {
-			return err
-		}
-		defer gcpResult.Close()
-
-		secretPrefix := loaded.GetSecretPrefix()
-		r := resolver.New(gcpResult.Client, gcpProject, secretPrefix)
-		resolved, err := r.ResolveAllNested(ctx, values)
-		if err != nil {
-			return err
-		}
-		values = resolved
-	}
-
-	if dryRun {
-		return nil
+	values, err := resolveNestedSecrets(loaded, loaded.Values)
+	if err != nil {
+		return err
 	}
 
 	data, err := marshalConfig(values, format)
@@ -185,17 +168,6 @@ func marshalConfig(values map[string]any, format string) ([]byte, error) {
 	}
 }
 
-// filterByKeys returns a new map containing only the keys present in the keys set
-func filterByKeys(m map[string]string, keys map[string]bool) map[string]string {
-	result := make(map[string]string, len(keys))
-	for k, v := range m {
-		if keys[k] {
-			result[k] = v
-		}
-	}
-	return result
-}
-
 func parseRunArgs(args []string) ([]string, error) {
 	// Find the -- separator
 	for i, arg := range args {
@@ -207,16 +179,22 @@ func parseRunArgs(args []string) ([]string, error) {
 					if j+1 < i {
 						envName = args[j+1]
 						j++
+					} else {
+						return nil, fmt.Errorf("flag %s requires a value", args[j])
 					}
 				case "-p", "--project":
 					if j+1 < i {
 						projectPath = args[j+1]
 						j++
+					} else {
+						return nil, fmt.Errorf("flag %s requires a value", args[j])
 					}
 				case "-c", "--config-file":
 					if j+1 < i {
 						configFile = args[j+1]
 						j++
+					} else {
+						return nil, fmt.Errorf("flag %s requires a value", args[j])
 					}
 				case "--all":
 					includeAll = true

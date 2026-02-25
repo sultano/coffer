@@ -1970,3 +1970,185 @@ app:
 		}
 	})
 }
+
+func TestResolve_SecretsOnlyWithNonDotenvFormat(t *testing.T) {
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+environments:
+  dev: {}
+defaults:
+  env: dev
+`,
+		"config/base.yaml": "app:\n  name: test\n",
+		"config/dev.yaml":  "",
+	})
+
+	t.Run("json format rejects --secrets-only", func(t *testing.T) {
+		_, err := execTestCmd("resolve", "-f", "json", "--secrets-only", "-p", dir, "-e", "dev")
+		if err == nil {
+			t.Fatal("expected error for --secrets-only with json format")
+		}
+		if !strings.Contains(err.Error(), "--secrets-only is only supported with dotenv format") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("yaml format rejects --secrets-only", func(t *testing.T) {
+		_, err := execTestCmd("resolve", "-f", "yaml", "--secrets-only", "-p", dir, "-e", "dev")
+		if err == nil {
+			t.Fatal("expected error for --secrets-only with yaml format")
+		}
+		if !strings.Contains(err.Error(), "--secrets-only is only supported with dotenv format") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestRunRun_UnsupportedConfigExtension(t *testing.T) {
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+environments:
+  dev: {}
+defaults:
+  env: dev
+`,
+		"config/base.yaml": "app:\n  name: test\n",
+		"config/dev.yaml":  "",
+	})
+
+	cfgPath := filepath.Join(dir, "output.txt")
+	_, err := execTestCmd("run", "--dry-run", "--config-file", cfgPath, "-p", dir, "-e", "dev", "--", "echo", "hello")
+	if err == nil {
+		t.Fatal("expected error for unsupported config file extension")
+	}
+	if !strings.Contains(err.Error(), "unsupported config file extension") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunRun_DryRunDoesNotWriteConfigFile(t *testing.T) {
+	mock := newMockSecretClient(map[string]string{
+		"db-password": "secret123",
+	})
+	withMockGCPClient(t, mock)
+
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-project
+defaults:
+  env: dev
+`,
+		"config/base.yaml": `
+database:
+  password: ${secret:db-password}
+`,
+		"config/dev.yaml": "",
+	})
+
+	cfgPath := filepath.Join(dir, "should-not-exist.json")
+	output, err := execTestCmd("run", "--dry-run", "--config-file", cfgPath, "-p", dir, "-e", "dev", "--", "echo", "hello")
+	if err != nil {
+		t.Fatalf("run --dry-run --config-file failed: %v", err)
+	}
+	if !strings.Contains(output, "Config file:") {
+		t.Errorf("expected config file info in dry-run output, got: %s", output)
+	}
+	if _, err := os.Stat(cfgPath); err == nil {
+		t.Error("config file should NOT be written during dry-run")
+	}
+}
+
+func TestParseRunArgs_ConfigFileFlag(t *testing.T) {
+	saveConfigFile := configFile
+	saveIncludeAll := includeAll
+	saveEnv := envName
+	savePath := projectPath
+	saveDry := dryRun
+	t.Cleanup(func() {
+		configFile = saveConfigFile
+		includeAll = saveIncludeAll
+		envName = saveEnv
+		projectPath = savePath
+		dryRun = saveDry
+	})
+
+	t.Run("--config-file flag", func(t *testing.T) {
+		configFile = ""
+		_, err := parseRunArgs([]string{"--config-file", "/tmp/out.yaml", "--", "ls"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if configFile != "/tmp/out.yaml" {
+			t.Errorf("expected configFile=/tmp/out.yaml, got %q", configFile)
+		}
+	})
+
+	t.Run("-c short flag", func(t *testing.T) {
+		configFile = ""
+		_, err := parseRunArgs([]string{"-c", "/tmp/out.json", "--", "ls"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if configFile != "/tmp/out.json" {
+			t.Errorf("expected configFile=/tmp/out.json, got %q", configFile)
+		}
+	})
+
+	t.Run("--all flag", func(t *testing.T) {
+		includeAll = false
+		_, err := parseRunArgs([]string{"--all", "--", "ls"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !includeAll {
+			t.Error("expected includeAll=true")
+		}
+	})
+
+	t.Run("-e missing value", func(t *testing.T) {
+		envName = ""
+		_, err := parseRunArgs([]string{"-e", "--", "ls"})
+		if err == nil {
+			t.Fatal("expected error for -e without value")
+		}
+		if !strings.Contains(err.Error(), "requires a value") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("-p missing value", func(t *testing.T) {
+		projectPath = ""
+		_, err := parseRunArgs([]string{"-p", "--", "ls"})
+		if err == nil {
+			t.Fatal("expected error for -p without value")
+		}
+		if !strings.Contains(err.Error(), "requires a value") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("-c missing value", func(t *testing.T) {
+		configFile = ""
+		_, err := parseRunArgs([]string{"-c", "--", "ls"})
+		if err == nil {
+			t.Fatal("expected error for -c without value")
+		}
+		if !strings.Contains(err.Error(), "requires a value") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}

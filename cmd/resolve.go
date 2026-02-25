@@ -43,6 +43,10 @@ func runResolve(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if secretsOnly && outputFormat != "dotenv" && outputFormat != "env" {
+		return fmt.Errorf("--secrets-only is only supported with dotenv format")
+	}
+
 	switch outputFormat {
 	case "dotenv", "env":
 		return resolveFlatOutput(loaded)
@@ -55,28 +59,9 @@ func runResolve(cmd *cobra.Command, args []string) error {
 
 // resolveNestedOutput outputs the nested config structure with secrets resolved
 func resolveNestedOutput(loaded *config.LoadedConfig, format string) error {
-	values := loaded.Values
-
-	refs := resolver.FindSecretRefsNested(values)
-	if len(refs) > 0 && !dryRun {
-		gcpProject := loaded.GetGCPProject()
-		if gcpProject == "" {
-			return fmt.Errorf("no GCP project configured for environment '%s'", loaded.Environment)
-		}
-
-		gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
-		if err != nil {
-			return err
-		}
-		defer gcpResult.Close()
-
-		secretPrefix := loaded.GetSecretPrefix()
-		r := resolver.New(gcpResult.Client, gcpProject, secretPrefix)
-		resolved, err := r.ResolveAllNested(ctx, values)
-		if err != nil {
-			return err
-		}
-		values = resolved
+	values, err := resolveNestedSecrets(loaded, loaded.Values)
+	if err != nil {
+		return err
 	}
 
 	switch format {
