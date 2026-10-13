@@ -1,21 +1,41 @@
 package config
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 )
 
 // ToEnvVars converts flattened config to environment variables
-// using explicit mappings from env_mapping, falling back to auto-convention
-func ToEnvVars(flat map[string]string, mapping map[string]string) map[string]string {
-	result := make(map[string]string)
+// using explicit mappings from env_mapping, falling back to auto-convention.
+// Returns an error if two distinct config keys map to the same env var name.
+func ToEnvVars(flat map[string]string, mapping map[string]string) (map[string]string, error) {
+	result := make(map[string]string, len(flat))
+	sourceKey := make(map[string]string, len(flat)) // envName -> config key that produced it
 
-	for key, value := range flat {
+	// BEHAVIOR: iterate keys in sorted order so a collision error is deterministic,
+	// not dependent on Go's randomized map iteration order
+	keys := make([]string, 0, len(flat))
+	for key := range flat {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
 		envName := mapToEnvVar(key, mapping)
-		result[envName] = value
+		if existing, ok := sourceKey[envName]; ok {
+			a, b := existing, key
+			if a > b {
+				a, b = b, a
+			}
+			return nil, fmt.Errorf("config keys %q and %q both map to environment variable %s", a, b, envName)
+		}
+		sourceKey[envName] = key
+		result[envName] = flat[key]
 	}
 
-	return result
+	return result, nil
 }
 
 // mapToEnvVar converts a dot-notation key to an environment variable name
@@ -49,10 +69,15 @@ func autoConvertToEnvVar(key string) string {
 // cleanEnvVarName ensures the name is a valid environment variable name
 func cleanEnvVarName(name string) string {
 	var result strings.Builder
-	for i, r := range name {
+	for _, r := range name {
 		if unicode.IsLetter(r) || r == '_' {
 			result.WriteRune(r)
-		} else if unicode.IsDigit(r) && i > 0 {
+		} else if unicode.IsDigit(r) {
+			// BEHAVIOR: a leading digit is prefixed with an underscore rather than
+			// dropped, so "3rd.party" becomes "_3RD_PARTY" instead of losing the digit
+			if result.Len() == 0 {
+				result.WriteRune('_')
+			}
 			result.WriteRune(r)
 		} else if r == '-' {
 			result.WriteRune('_')

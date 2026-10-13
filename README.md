@@ -45,8 +45,8 @@ echo 'database:
   host: localhost
   password: ${secret:db-password}' >> config/base.yaml
 
-# Set the secret in GCP
-coffer secret set db-password "supersecret"
+# Set the secret in GCP (prompts without echoing the value)
+coffer secret set db-password
 
 # Run your app with config injected
 coffer run -- node server.js
@@ -119,7 +119,7 @@ eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
 | `coffer secret import <file>` | Import secrets from a .env file |
 | `coffer auth status` | Check GCP authentication status |
 | `coffer auth login` | Authenticate to GCP |
-| `coffer version` | Print version information |
+| `coffer version` | Print version information (also `coffer --version`) |
 
 ### Global Flags
 
@@ -128,8 +128,6 @@ eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
 | `-e, --env <name>` | Environment name (dev, staging, prod) |
 | `-p, --path <dir>` | Path to project directory |
 | `--dry-run` | Preview changes without applying |
-| `--all` | Inject all config values as env vars (default: secrets only) |
-| `--config-file <path>` | Write resolved config to a file (.json or .yaml) |
 | `--no-color` | Disable colored output |
 
 ### Environment Variables
@@ -177,6 +175,8 @@ Configuration is merged in order (later files override earlier):
 2. `{env}.yaml` - Environment-specific overrides (e.g., `dev.yaml`, `prod.yaml`)
 3. `local.yaml` - Local development overrides (not committed)
 
+Every other `.yaml` file in the config directory is treated as an environment, alongside any declared under `environments:` in `.coffer.yaml`, so keep only config files there.
+
 ### Secret References
 
 Reference secrets in your config using `${secret:name}` syntax:
@@ -208,8 +208,12 @@ Config keys are automatically converted to environment variables:
 |------------|---------------------|
 | `database.host` | `DATABASE_HOST` |
 | `app.log_level` | `APP_LOG_LEVEL` |
+| `api.base-url` | `API_BASE_URL` |
+| `3rd.party` | `_3RD_PARTY` |
 
-Use `env_mapping` in `.coffer.yaml` to customize variable names.
+Dots and dashes become underscores, a leading digit gets an underscore prefix, and any other character that is not valid in an env var name is dropped. Use `env_mapping` in `.coffer.yaml` to customize variable names.
+
+If two config keys would produce the same variable name, coffer stops with an error naming both keys rather than picking one.
 
 ## Commands
 
@@ -221,8 +225,17 @@ Run a command with configuration injected as environment variables. By default, 
 coffer run -- npm start
 coffer run --env prod -- ./deploy.sh
 coffer run --all -- node server.js       # Inject all config values, not just secrets
-coffer run --dry-run -- node server.js   # Preview env vars without running
+coffer run --dry-run -- node server.js   # Preview env vars (secrets masked) without running
 ```
+
+Coffer's flags go before the command; everything from the command onwards is passed to it untouched, so `coffer run -- node app.js --env x` gives `--env x` to node. The `--` separator is optional but makes this explicit.
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Inject all config values as env vars (default: secrets only) |
+| `-c, --config-file <path>` | Write the full resolved config to a file (`.json`, `.yaml` or `.yml`, mode 0600) |
+
+Injected variables override any variable of the same name already set in the environment. Coffer forwards `SIGINT`, `SIGTERM`, `SIGHUP` and `SIGQUIT` to the command and exits with its exit code; if the command is killed by a signal, coffer exits with `128 + signal` (e.g. 143 for `SIGTERM`), as a shell would. Errors in coffer itself exit with 1.
 
 Use `--config-file` to write the full resolved config to a file for your app to read:
 
@@ -271,7 +284,7 @@ Validate configuration files for syntax errors:
 coffer validate
 ```
 
-Checks YAML syntax, secret reference format, and env_mapping keys.
+Checks YAML syntax, secret reference format, env_mapping keys, and that no two config keys map to the same env var name.
 
 ### coffer secret
 
@@ -280,12 +293,15 @@ Manage secrets in GCP Secret Manager:
 ```bash
 coffer secret list                        # List all secrets
 coffer secret get db-password             # Get a secret value
-coffer secret set db-password "value"     # Create/update a secret
+coffer secret set db-password             # Create/update a secret (prompts, input hidden)
+printf '%s' "$VALUE" | coffer secret set db-password   # From stdin
 coffer secret set api-key --from-file key.pem  # From file
 coffer secret delete db-password          # Preview deletion
 coffer secret delete db-password --yes    # Confirm deletion
 coffer secret unused                      # Find unreferenced secrets
 ```
+
+A value can also be passed as a second argument (`coffer secret set db-password "value"`), but it is then recorded in your shell history and visible in process listings, so coffer prints a warning.
 
 ### coffer secret import
 

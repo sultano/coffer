@@ -15,6 +15,7 @@ func TestAutoConvertToEnvVar(t *testing.T) {
 		{"api.key-name", "API_KEY_NAME"},
 		{"simple", "SIMPLE"},
 		{"deeply.nested.key.value", "DEEPLY_NESTED_KEY_VALUE"},
+		{"3rd.party", "_3RD_PARTY"},
 	}
 
 	for _, tt := range tests {
@@ -38,7 +39,10 @@ func TestToEnvVars(t *testing.T) {
 		"database.password": "DB_PASS",
 	}
 
-	result := ToEnvVars(flat, mapping)
+	result, err := ToEnvVars(flat, mapping)
+	if err != nil {
+		t.Fatalf("ToEnvVars failed: %v", err)
+	}
 
 	// Check explicit mapping
 	if result["DB_PASS"] != "secret" {
@@ -52,6 +56,46 @@ func TestToEnvVars(t *testing.T) {
 
 	if result["APP_NAME"] != "myapp" {
 		t.Errorf("expected APP_NAME=myapp, got %q", result["APP_NAME"])
+	}
+}
+
+func TestToEnvVars_CollisionExplicitMapping(t *testing.T) {
+	flat := map[string]string{
+		"database.host": "localhost",
+		"app.host":      "myapp.example.com",
+	}
+
+	mapping := map[string]string{
+		"database.host": "HOST",
+		"app.host":      "HOST",
+	}
+
+	_, err := ToEnvVars(flat, mapping)
+	if err == nil {
+		t.Fatal("expected error for colliding env var name, got nil")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, "app.host") || !strings.Contains(msg, "database.host") || !strings.Contains(msg, "HOST") {
+		t.Errorf("expected error to name both keys and the env var, got: %s", msg)
+	}
+}
+
+func TestToEnvVars_CollisionAutoConversion(t *testing.T) {
+	flat := map[string]string{
+		"api.key": "key-one",
+		"api-key": "key-two",
+	}
+
+	_, err := ToEnvVars(flat, nil)
+	if err == nil {
+		t.Fatal("expected error for colliding env var name, got nil")
+	}
+
+	// Keys are reported sorted, so the message is deterministic regardless of map iteration order
+	msg := err.Error()
+	if !strings.Contains(msg, `"api-key"`) || !strings.Contains(msg, `"api.key"`) || !strings.Contains(msg, "API_KEY") {
+		t.Errorf("expected error to name both keys and the env var, got: %s", msg)
 	}
 }
 
@@ -85,7 +129,7 @@ func TestCleanEnvVarName(t *testing.T) {
 		expected string
 	}{
 		{"valid name", "DB_HOST", "DB_HOST"},
-		{"leading digit stripped", "1FOO", "FOO"},
+		{"leading digit prefixed with underscore", "1FOO", "_1FOO"},
 		{"hyphens to underscores", "API-KEY", "API_KEY"},
 		{"special chars stripped", "FOO@BAR!BAZ", "FOOBARBAZ"},
 		{"empty string", "", ""},

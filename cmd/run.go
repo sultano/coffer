@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,7 +11,6 @@ import (
 	"sort"
 	"syscall"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/sultano/coffer/internal/config"
 	"github.com/sultano/coffer/internal/resolver"
@@ -22,8 +22,18 @@ var (
 	includeAll bool
 )
 
+// ExitError carries the child's exit status up to main, so deferred cleanup
+// runs before the process exits.
+type ExitError struct {
+	Code int
+}
+
+func (e *ExitError) Error() string {
+	return fmt.Sprintf("command exited with status %d", e.Code)
+}
+
 var runCmd = &cobra.Command{
-	Use:   "run -- <command> [args...]",
+	Use:   "run [flags] [--] <command> [args...]",
 	Short: "Run a command with config and secrets injected as environment variables",
 	Long: `Run a command with configuration and secrets injected as environment variables.
 
@@ -32,25 +42,31 @@ and runs your command with all values available as environment variables.
 
 By default, only values containing secret references are injected as env vars.
 Use --all to inject all config values. Use --config-file to write the full
-resolved config to a file for the app to read.`,
-	DisableFlagParsing: true,
-	RunE:               runRun,
+resolved config to a file for the app to read.
+
+Coffer's flags must come before the command. Everything from the command
+onwards is passed to it untouched.`,
+	Example: `  coffer run -- node server.js
+  coffer run --env prod --config-file /app/config.json -- node server.js`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("no command specified - usage: coffer run [flags] -- <command> [args...]")
+		}
+		return nil
+	},
+	RunE: runRun,
 }
 
 func init() {
+	runCmd.Flags().StringVarP(&configFile, "config-file", "c", "", "write the full resolved config to this file (.yaml, .yml or .json)")
+	runCmd.Flags().BoolVar(&includeAll, "all", false, "inject all config values as env vars, not only secrets")
+	// BEHAVIOR: Flag parsing stops at the first non-flag argument, so the
+	// child's own flags (coffer run node --env x) are never taken by coffer.
+	runCmd.Flags().SetInterspersed(false)
 	rootCmd.AddCommand(runCmd)
 }
 
-func runRun(cmd *cobra.Command, args []string) error {
-	cmdArgs, err := parseRunArgs(args)
-	if err != nil {
-		return err
-	}
-
-	if len(cmdArgs) == 0 {
-		return fmt.Errorf("no command specified - usage: coffer run -- <command> [args...]")
-	}
-
+func runRun(cmd *cobra.Command, cmdArgs []string) error {
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return err
@@ -92,13 +108,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// BEHAVIOR: By default only keys with secret references become env vars
 	// Use --all to inject all config values as env vars
-	envResolved := resolved
-	if !includeAll {
-		secretKeys := resolver.KeysWithSecretRefs(flat)
-		envResolved = filterByKeys(resolved, secretKeys)
+	// BEHAVIOR: Collisions are checked across the whole config, so a config
+	// that is valid without --all stays valid with it.
+	allEnvVars, err := config.ToEnvVars(resolved, loaded.Project.EnvMapping)
+	if err != nil {
+		return err
 	}
-
-	envVars := config.ToEnvVars(envResolved, loaded.Project.EnvMapping)
+	// A subset of a collision-free set cannot collide.
+	secretEnvVars, _ := config.ToEnvVars(filterByKeys(resolved, resolver.KeysWithSecretRefs(flat)), loaded.Project.EnvMapping)
+	envVars := secretEnvVars
+	if includeAll {
+		envVars = allEnvVars
+	}
 
 	// Validate config file extension early (before dry-run or write)
 	if configFile != "" {
@@ -113,7 +134,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Config file: %s (format: %s)\n", configFile, format)
 			fmt.Println()
 		}
-		return printDryRun(envVars, cmdArgs)
+		return printDryRun(envVars, secretEnvVars, cmdArgs)
 	}
 
 	// Write config file if requested (only when not dry-run)
@@ -168,52 +189,7 @@ func marshalConfig(values map[string]any, format string) ([]byte, error) {
 	}
 }
 
-func parseRunArgs(args []string) ([]string, error) {
-	// Find the -- separator
-	for i, arg := range args {
-		if arg == "--" {
-			// Process flags before --
-			for j := 0; j < i; j++ {
-				switch args[j] {
-				case "-e", "--env":
-					if j+1 < i {
-						envName = args[j+1]
-						j++
-					} else {
-						return nil, fmt.Errorf("flag %s requires a value", args[j])
-					}
-				case "-p", "--project":
-					if j+1 < i {
-						projectPath = args[j+1]
-						j++
-					} else {
-						return nil, fmt.Errorf("flag %s requires a value", args[j])
-					}
-				case "-c", "--config-file":
-					if j+1 < i {
-						configFile = args[j+1]
-						j++
-					} else {
-						return nil, fmt.Errorf("flag %s requires a value", args[j])
-					}
-				case "--all":
-					includeAll = true
-				case "--dry-run":
-					dryRun = true
-				case "--no-color":
-					noColor = true
-					color.NoColor = true
-				}
-			}
-			return args[i+1:], nil
-		}
-	}
-
-	// No -- found, treat all args as the command
-	return args, nil
-}
-
-func printDryRun(envVars map[string]string, cmdArgs []string) error {
+func printDryRun(envVars, secretEnvVars map[string]string, cmdArgs []string) error {
 	fmt.Println("Dry run - would execute with environment:")
 	fmt.Println()
 
@@ -225,11 +201,11 @@ func printDryRun(envVars map[string]string, cmdArgs []string) error {
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		v := envVars[k]
-		// Mask potential secrets
-		display := v
-		if len(display) > 20 {
-			display = display[:20] + "..."
+		// BEHAVIOR: Secret-derived values are fully masked; any partial reveal
+		// prints short secrets in full.
+		display := envVars[k]
+		if _, isSecret := secretEnvVars[k]; isSecret {
+			display = "********"
 		}
 		fmt.Printf("  %s=%s\n", k, display)
 	}
@@ -254,12 +230,11 @@ func executeCommand(cmdArgs []string, envVars map[string]string) error {
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 
-	// Set up signal forwarding
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 
-	// Start the command
 	if err := command.Start(); err != nil {
+		signal.Stop(sigChan)
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
@@ -277,13 +252,19 @@ func executeCommand(cmdArgs []string, envVars map[string]string) error {
 	signal.Stop(sigChan)
 	close(sigChan)
 
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Propagate the exit code
-			os.Exit(exitErr.ExitCode())
-		}
-		return err
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return &ExitError{Code: childExitCode(exitErr)}
 	}
+	return err
+}
 
-	return nil
+// BEHAVIOR: A child killed by a signal exits 128+signal, as a shell reports it.
+// ExitCode() is -1 then, which os.Exit turns into 255 and hides the signal
+// from supervisors such as Docker and Kubernetes.
+func childExitCode(err *exec.ExitError) int {
+	if status, ok := err.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return 128 + int(status.Signal())
+	}
+	return err.ExitCode()
 }

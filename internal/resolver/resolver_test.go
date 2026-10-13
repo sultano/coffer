@@ -249,6 +249,22 @@ func TestResolver_ResolveValue(t *testing.T) {
 			t.Fatal("expected error for missing secret")
 		}
 	})
+
+	t.Run("does not reinterpret a secret value containing another ref's literal text", func(t *testing.T) {
+		provider := NewMockProvider(map[string]string{
+			"a": "${secret:b}", // secret a's value happens to look like a ref to secret b
+			"b": "value-b",
+		})
+		resolver := New(provider, "test-project", "")
+
+		result, err := resolver.ResolveValue(ctx, "${secret:a}-${secret:b}")
+		if err != nil {
+			t.Fatalf("ResolveValue failed: %v", err)
+		}
+		if result != "${secret:b}-value-b" {
+			t.Errorf("ResolveValue() = %q, want %q", result, "${secret:b}-value-b")
+		}
+	})
 }
 
 func TestResolver_ResolveAll(t *testing.T) {

@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/sultano/coffer/internal/config"
 	"github.com/sultano/coffer/internal/resolver"
+	"golang.org/x/term"
 )
 
 var secretCmd = &cobra.Command{
@@ -35,8 +36,9 @@ var secretSetCmd = &cobra.Command{
 	Short: "Create or update a secret",
 	Long: `Create or update a secret in GCP Secret Manager.
 
-If value is not provided, it will be read from stdin.
-Use --from-file to read the value from a file.`,
+If value is not provided, it will be read from stdin (recommended), or use
+--from-file to read it from a file. Passing the value as an argument works
+but may be recorded in your shell history and visible to other processes.`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runSecretSet,
 }
@@ -246,16 +248,14 @@ func runSecretSet(cmd *cobra.Command, args []string) error {
 		value = string(data)
 	} else if len(args) > 1 {
 		// Value provided as argument
+		fmt.Fprintln(os.Stderr, "Warning: secret value passed on the command line may be recorded in your shell history or visible to other processes; prefer stdin or --from-file")
 		value = args[1]
 	} else {
-		// Read from stdin
-		fmt.Fprint(os.Stderr, "Enter secret value: ")
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
+		var err error
+		value, err = readSecretValue(os.Stdin, term.IsTerminal(int(os.Stdin.Fd())))
 		if err != nil {
-			return fmt.Errorf("failed to read value: %w", err)
+			return err
 		}
-		value = strings.TrimSuffix(line, "\n")
 	}
 
 	projectRoot, err := getProjectRoot()
@@ -299,6 +299,44 @@ func runSecretSet(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  (stored as: %s)\n", fullSecretName)
 	}
 	return nil
+}
+
+// readSecretValue reads a secret value from r. When isTerminal is true, r must
+// be an *os.File (the interactive case); the value is read without echoing it
+// to the screen. Otherwise r is read to completion, which supports piped
+// input with or without a trailing newline and preserves embedded newlines
+// in multi-line values.
+func readSecretValue(r io.Reader, isTerminal bool) (string, error) {
+	if isTerminal {
+		f, ok := r.(*os.File)
+		if !ok {
+			return "", fmt.Errorf("cannot read password interactively from a non-file reader")
+		}
+		fmt.Fprint(os.Stderr, "Enter secret value: ")
+		data, err := term.ReadPassword(int(f.Fd()))
+		fmt.Fprintln(os.Stderr)
+		if err != nil {
+			return "", fmt.Errorf("failed to read value: %w", err)
+		}
+		if len(data) == 0 {
+			return "", fmt.Errorf("secret value cannot be empty")
+		}
+		return string(data), nil
+	}
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("failed to read value: %w", err)
+	}
+
+	value := strings.TrimSuffix(string(data), "\n")
+	value = strings.TrimSuffix(value, "\r")
+
+	if value == "" {
+		return "", fmt.Errorf("secret value cannot be empty")
+	}
+
+	return value, nil
 }
 
 func runSecretDelete(cmd *cobra.Command, args []string) error {
@@ -371,7 +409,10 @@ func runSecretUnused(cmd *cobra.Command, args []string) error {
 	secretPrefix := project.GCP.SecretPrefix
 
 	// Collect all secret references across all environments
-	referencedSecrets := collectReferencedSecrets(projectRoot, project, secretPrefix)
+	referencedSecrets, err := collectReferencedSecrets(projectRoot, project, secretPrefix)
+	if err != nil {
+		return err
+	}
 
 	// List secrets from GCP
 	gcpResult, ctx, err := newGCPClient(DefaultGCPTimeout)
@@ -414,15 +455,20 @@ func runSecretUnused(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// collectReferencedSecrets scans all environments and returns a set of referenced secret names
-func collectReferencedSecrets(projectRoot string, project *config.ProjectConfig, secretPrefix string) map[string]bool {
+// collectReferencedSecrets scans all environments and returns a set of referenced secret names.
+// An environment that fails to load is reported as an error rather than skipped, since
+// silently ignoring it would let a broken env file make a still-referenced secret look unused.
+func collectReferencedSecrets(projectRoot string, project *config.ProjectConfig, secretPrefix string) (map[string]bool, error) {
 	referencedSecrets := make(map[string]bool)
 
-	envs := project.ListEnvironments()
+	envs, err := config.Environments(projectRoot, project)
+	if err != nil {
+		return nil, err
+	}
 	for _, env := range envs {
 		loaded, loadErr := config.Load(projectRoot, env)
 		if loadErr != nil {
-			continue // Skip environments that fail to load
+			return nil, fmt.Errorf("failed to load environment %q: %w", env, loadErr)
 		}
 
 		flat := config.Flatten(loaded.Values)
@@ -438,7 +484,7 @@ func collectReferencedSecrets(projectRoot string, project *config.ProjectConfig,
 		}
 	}
 
-	return referencedSecrets
+	return referencedSecrets, nil
 }
 
 // findUnusedSecrets compares GCP secrets against referenced secrets and returns unused ones

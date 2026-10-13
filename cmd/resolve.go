@@ -109,7 +109,10 @@ func resolveFlatOutput(loaded *config.LoadedConfig) error {
 		resolved = filterByKeys(resolved, secretKeys)
 	}
 
-	envVars := config.ToEnvVars(resolved, loaded.Project.EnvMapping)
+	envVars, err := config.ToEnvVars(resolved, loaded.Project.EnvMapping)
+	if err != nil {
+		return err
+	}
 	return outputDotenv(envVars)
 }
 

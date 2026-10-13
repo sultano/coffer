@@ -136,12 +136,13 @@ func checkAllEnvironments(projectRoot string, project *config.ProjectConfig) err
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
 
-	envs := project.ListEnvironments()
+	envs, err := config.Environments(projectRoot, project)
+	if err != nil {
+		return err
+	}
 	if len(envs) == 0 {
 		return fmt.Errorf("no environments defined in %s", config.ProjectFileName)
 	}
-
-	sort.Strings(envs)
 
 	fmt.Printf("Checking environments: %v\n\n", envs)
 
