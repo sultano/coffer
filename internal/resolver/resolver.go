@@ -62,12 +62,18 @@ func (r *Resolver) ResolveValue(ctx context.Context, value string) (string, erro
 		return value, nil
 	}
 
-	result := value
-	matches := secretRefPattern.FindAllStringSubmatch(value, -1)
+	// BEHAVIOR: build the result from the original value in a single pass over
+	// match positions, rather than repeatedly replacing text in the accumulating
+	// result string - a resolved secret value can itself contain another ref's
+	// literal text (e.g. "${secret:b}"), which strings.Replace would mistake for
+	// an unresolved reference and corrupt
+	matches := secretRefPattern.FindAllStringSubmatchIndex(value, -1)
 
-	for _, match := range matches {
-		fullMatch := match[0]
-		refStr := match[1]
+	var sb strings.Builder
+	lastEnd := 0
+	for _, m := range matches {
+		start, end := m[0], m[1]
+		refStr := value[m[2]:m[3]]
 
 		ref := ParseSecretRef(refStr)
 
@@ -81,10 +87,13 @@ func (r *Resolver) ResolveValue(ctx context.Context, value string) (string, erro
 			return "", err
 		}
 
-		result = strings.Replace(result, fullMatch, secretValue, 1)
+		sb.WriteString(value[lastEnd:start])
+		sb.WriteString(secretValue)
+		lastEnd = end
 	}
+	sb.WriteString(value[lastEnd:])
 
-	return result, nil
+	return sb.String(), nil
 }
 
 // ContainsSecretRef checks if a value contains a secret reference

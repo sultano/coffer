@@ -71,11 +71,13 @@ func runInfo(cmd *cobra.Command, args []string) error {
 
 	// Environments
 	_, _ = bold.Println("Environments")
-	envs := project.ListEnvironments()
+	envs, err := config.Environments(projectRoot, project)
+	if err != nil {
+		return err
+	}
 	if len(envs) == 0 {
 		_, _ = yellow.Println("  No environments defined")
 	} else {
-		sort.Strings(envs)
 		for _, env := range envs {
 			gcpProject := project.GCP.Project
 			if envCfg, ok := project.Environments[env]; ok && envCfg.GCP.Project != "" {

@@ -47,14 +47,20 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "preview what would be done without making changes")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "disable colored output")
 
+	rootCmd.Version = version
+	rootCmd.SetVersionTemplate(versionString() + "\n")
 	rootCmd.AddCommand(versionCmd)
+}
+
+func versionString() string {
+	return fmt.Sprintf("coffer %s (commit: %s, built: %s)", version, commit, date)
 }
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("coffer %s (commit: %s, built: %s)\n", version, commit, date)
+		fmt.Println(versionString())
 	},
 }
 

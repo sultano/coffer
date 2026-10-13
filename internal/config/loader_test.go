@@ -545,29 +545,122 @@ app:
 	})
 }
 
-func TestListEnvironments(t *testing.T) {
-	cfg := &ProjectConfig{
-		Environments: map[string]EnvConfig{
-			"dev":     {},
-			"staging": {},
-			"prod":    {},
-		},
-	}
+func TestEnvironments(t *testing.T) {
+	t.Run("declared only", func(t *testing.T) {
+		dir := setupTestProject(t, nil)
+		cfg := &ProjectConfig{
+			Config: ConfigSection{Path: "./config", Base: DefaultBaseName},
+			Environments: map[string]EnvConfig{
+				"dev":     {},
+				"staging": {},
+				"prod":    {},
+			},
+		}
 
-	envs := cfg.ListEnvironments()
-	if len(envs) != 3 {
-		t.Errorf("ListEnvironments() returned %d envs, want 3", len(envs))
-	}
+		envs, err := Environments(dir, cfg)
+		if err != nil {
+			t.Fatalf("Environments() failed: %v", err)
+		}
+		assertEnvs(t, envs, []string{"dev", "prod", "staging"})
+	})
 
-	// Check all envs are present
-	envMap := make(map[string]bool)
-	for _, env := range envs {
-		envMap[env] = true
-	}
+	t.Run("files only", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			"config/dev.yaml":  "",
+			"config/prod.yaml": "",
+		})
+		cfg := &ProjectConfig{Config: ConfigSection{Path: "./config", Base: DefaultBaseName}}
 
-	for _, expected := range []string{"dev", "staging", "prod"} {
-		if !envMap[expected] {
-			t.Errorf("ListEnvironments() missing %q", expected)
+		envs, err := Environments(dir, cfg)
+		if err != nil {
+			t.Fatalf("Environments() failed: %v", err)
+		}
+		assertEnvs(t, envs, []string{"dev", "prod"})
+	})
+
+	t.Run("declared and files overlapping", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			"config/dev.yaml":     "",
+			"config/staging.yaml": "",
+		})
+		cfg := &ProjectConfig{
+			Config:       ConfigSection{Path: "./config", Base: DefaultBaseName},
+			Environments: map[string]EnvConfig{"dev": {}, "prod": {}},
+		}
+
+		envs, err := Environments(dir, cfg)
+		if err != nil {
+			t.Fatalf("Environments() failed: %v", err)
+		}
+		assertEnvs(t, envs, []string{"dev", "prod", "staging"})
+	})
+
+	t.Run("excludes base and local files", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			"config/base.yaml":  "",
+			"config/local.yaml": "",
+			"config/dev.yaml":   "",
+		})
+		cfg := &ProjectConfig{Config: ConfigSection{Path: "./config", Base: DefaultBaseName}}
+
+		envs, err := Environments(dir, cfg)
+		if err != nil {
+			t.Fatalf("Environments() failed: %v", err)
+		}
+		assertEnvs(t, envs, []string{"dev"})
+	})
+
+	t.Run("excludes custom base name", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			"config/common.yaml": "",
+			"config/dev.yaml":    "",
+		})
+		cfg := &ProjectConfig{Config: ConfigSection{Path: "./config", Base: "common.yaml"}}
+
+		envs, err := Environments(dir, cfg)
+		if err != nil {
+			t.Fatalf("Environments() failed: %v", err)
+		}
+		assertEnvs(t, envs, []string{"dev"})
+	})
+
+	t.Run("excludes invalid stem", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			"config/dev.yaml":     "",
+			"config/.hidden.yaml": "",
+		})
+		cfg := &ProjectConfig{Config: ConfigSection{Path: "./config", Base: DefaultBaseName}}
+
+		envs, err := Environments(dir, cfg)
+		if err != nil {
+			t.Fatalf("Environments() failed: %v", err)
+		}
+		assertEnvs(t, envs, []string{"dev"})
+	})
+
+	t.Run("missing config dir is not an error", func(t *testing.T) {
+		dir := setupTestProject(t, nil)
+		cfg := &ProjectConfig{
+			Config:       ConfigSection{Path: "./config", Base: DefaultBaseName},
+			Environments: map[string]EnvConfig{"dev": {}},
+		}
+
+		envs, err := Environments(dir, cfg)
+		if err != nil {
+			t.Fatalf("Environments() failed: %v", err)
+		}
+		assertEnvs(t, envs, []string{"dev"})
+	})
+}
+
+func assertEnvs(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("Environments() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Environments() = %v, want %v", got, want)
 		}
 	}
 }

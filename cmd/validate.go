@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/fatih/color"
@@ -22,6 +23,7 @@ Checks:
   - YAML syntax in all config files
   - Secret references are well-formed
   - env_mapping keys exist in config
+  - No two config keys map to the same env var name
   - Environment config files exist`,
 	RunE: runValidate,
 }
@@ -71,6 +73,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	// 4. Validate env_mapping
 	validateEnvMapping(projectRoot, project, result)
+	validateEnvVarNames(projectRoot, project, result)
 
 	// 5. Check local.yaml gitignore
 	checkLocalGitignore(projectRoot, result)
@@ -123,8 +126,11 @@ func validateConfigFiles(projectRoot string, project *config.ProjectConfig, resu
 		fmt.Printf("  %s %s\n", color.GreenString("✓"), project.Config.Base)
 	}
 
-	// Check environment configs
-	for env := range project.Environments {
+	envs, err := config.Environments(projectRoot, project)
+	if err != nil {
+		result.addError("failed to list environments: %v", err)
+	}
+	for _, env := range envs {
 		envFile := env + ".yaml"
 		envPath := filepath.Join(configDir, envFile)
 
@@ -168,7 +174,13 @@ func validateSecretRefs(projectRoot string, project *config.ProjectConfig, resul
 	// Pattern to find potential malformed refs
 	partialRefPattern := regexp.MustCompile(`\$\{secret:[^}]*`)
 
-	for _, env := range project.ListEnvironments() {
+	envs, err := config.Environments(projectRoot, project)
+	if err != nil {
+		result.addError("failed to list environments: %v", err)
+		return
+	}
+
+	for _, env := range envs {
 		loaded, err := config.Load(projectRoot, env)
 		if err != nil {
 			continue
@@ -197,29 +209,50 @@ func validateEnvMapping(projectRoot string, project *config.ProjectConfig, resul
 		return
 	}
 
-	// Load default env to check mappings
-	env := project.Defaults.Env
-	if env == "" && len(project.Environments) > 0 {
-		for e := range project.Environments {
-			env = e
-			break
+	envs, err := config.Environments(projectRoot, project)
+	if err != nil {
+		result.addError("failed to list environments: %v", err)
+		return
+	}
+
+	// A mapping key only needs to exist in one environment to be in use.
+	seen := make(map[string]bool)
+	for _, env := range envs {
+		loaded, err := config.Load(projectRoot, env)
+		if err != nil {
+			continue
+		}
+		for key := range config.Flatten(loaded.Values) {
+			seen[key] = true
 		}
 	}
 
-	if env == "" {
-		return
+	keys := make([]string, 0, len(project.EnvMapping))
+	for key := range project.EnvMapping {
+		keys = append(keys, key)
 	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if !seen[key] {
+			result.addWarning("env_mapping key '%s' not found in config", key)
+		}
+	}
+}
 
-	loaded, err := config.Load(projectRoot, env)
+func validateEnvVarNames(projectRoot string, project *config.ProjectConfig, result *validationResult) {
+	envs, err := config.Environments(projectRoot, project)
 	if err != nil {
+		result.addError("failed to list environments: %v", err)
 		return
 	}
 
-	flat := config.Flatten(loaded.Values)
-
-	for configKey := range project.EnvMapping {
-		if _, exists := flat[configKey]; !exists {
-			result.addWarning("env_mapping key '%s' not found in config", configKey)
+	for _, env := range envs {
+		loaded, err := config.Load(projectRoot, env)
+		if err != nil {
+			continue
+		}
+		if _, err := config.ToEnvVars(config.Flatten(loaded.Values), project.EnvMapping); err != nil {
+			result.addError("environment %s: %v", env, err)
 		}
 	}
 }

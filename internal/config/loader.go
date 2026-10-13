@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -169,11 +171,51 @@ func (lc *LoadedConfig) GetSecretPrefix() string {
 	return lc.Project.GCP.SecretPrefix
 }
 
-// ListEnvironments returns all defined environments
-func (pc *ProjectConfig) ListEnvironments() []string {
-	envs := make([]string, 0, len(pc.Environments))
-	for env := range pc.Environments {
+// Environments returns the sorted, de-duplicated union of environments declared under
+// `environments:` in .coffer.yaml and environments implied by a `<env>.yaml` file in the
+// config dir. Load() accepts both forms, so anything that enumerates "all environments"
+// (check --all, validate, secret unused) must too, or it silently skips file-only envs.
+func Environments(projectRoot string, project *ProjectConfig) ([]string, error) {
+	seen := make(map[string]bool, len(project.Environments))
+	for env := range project.Environments {
+		seen[env] = true
+	}
+
+	configDir := filepath.Join(projectRoot, project.Config.Path)
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return sortedKeys(seen), nil
+		}
+		return nil, fmt.Errorf("failed to read config dir %s: %w", configDir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == project.Config.Base || name == LocalFileName {
+			continue
+		}
+		stem, ok := strings.CutSuffix(name, ".yaml")
+		if !ok {
+			continue
+		}
+		if !validEnvName.MatchString(stem) {
+			continue
+		}
+		seen[stem] = true
+	}
+
+	return sortedKeys(seen), nil
+}
+
+func sortedKeys(set map[string]bool) []string {
+	envs := make([]string, 0, len(set))
+	for env := range set {
 		envs = append(envs, env)
 	}
+	sort.Strings(envs)
 	return envs
 }

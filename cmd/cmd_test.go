@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/sultano/coffer/internal/config"
 	"github.com/sultano/coffer/internal/resolver"
 )
@@ -27,15 +29,8 @@ func execTestCmd(args ...string) (string, error) {
 	os.Stderr = w
 	color.Output = w
 
-	// Reset global state
-	envName = ""
-	projectPath = ""
-	dryRun = false
+	resetFlags(rootCmd)
 	noColor = true
-	yesFlag = false
-	configFile = ""
-	includeAll = false
-	secretsOnly = false
 
 	rootCmd.SetArgs(args)
 	err := rootCmd.Execute()
@@ -51,6 +46,20 @@ func execTestCmd(args ...string) (string, error) {
 	_ = r.Close()
 
 	return buf.String(), err
+}
+
+// resetFlags restores every flag to its default, since cobra keeps parsed
+// values between Execute calls in one process.
+func resetFlags(cmd *cobra.Command) {
+	reset := func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	}
+	cmd.Flags().VisitAll(reset)
+	cmd.PersistentFlags().VisitAll(reset)
+	for _, c := range cmd.Commands() {
+		resetFlags(c)
+	}
 }
 
 // setupTestProject creates a temp project for testing
@@ -384,6 +393,40 @@ app:
 	// Auto-converted (not in explicit mapping)
 	if !strings.Contains(output, "DATABASE_NAME=mydb") {
 		t.Errorf("unmapped keys should auto-convert to DATABASE_NAME, got: %s", output)
+	}
+}
+
+func TestReadSecretValue_NonTerminal(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "trailing newline is stripped", input: "hunter2\n", want: "hunter2"},
+		{name: "no trailing newline (e.g. printf) still works", input: "hunter2", want: "hunter2"},
+		{name: "trailing CRLF is stripped", input: "hunter2\r\n", want: "hunter2"},
+		{name: "multi-line value is preserved", input: "line1\nline2\nline3\n", want: "line1\nline2\nline3"},
+		{name: "empty input is rejected", input: "", wantErr: true},
+		{name: "whitespace-only after strip is not empty", input: " \n", want: " "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := readSecretValue(strings.NewReader(tt.input), false)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -761,7 +804,10 @@ app:
 			t.Fatalf("failed to load project: %v", err)
 		}
 
-		referenced := collectReferencedSecrets(dir, project, "")
+		referenced, err := collectReferencedSecrets(dir, project, "")
+		if err != nil {
+			t.Fatalf("collectReferencedSecrets failed: %v", err)
+		}
 
 		// Should find secrets from base + both envs
 		if !referenced["db-password"] {
@@ -804,7 +850,10 @@ app:
 			t.Fatalf("failed to load project: %v", err)
 		}
 
-		referenced := collectReferencedSecrets(dir, project, "svc-")
+		referenced, err := collectReferencedSecrets(dir, project, "svc-")
+		if err != nil {
+			t.Fatalf("collectReferencedSecrets failed: %v", err)
+		}
 
 		// Should have prefixed name
 		if !referenced["svc-db-password"] {
@@ -814,85 +863,52 @@ app:
 			t.Error("db-password should not be referenced without prefix")
 		}
 	})
+
+	t.Run("returns an error when an environment fails to load", func(t *testing.T) {
+		dir := setupTestProject(t, map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev:
+    gcp:
+      project: test-dev
+  broken:
+    gcp:
+      project: test-broken
+`,
+			"config/base.yaml": `
+database:
+  password: ${secret:db-password}
+`,
+			"config/dev.yaml": `
+app:
+  api_key: ${secret:dev-api-key}
+`,
+			"config/broken.yaml": `
+app: [this is not valid yaml
+`,
+		})
+
+		project, err := config.LoadProject(dir)
+		if err != nil {
+			t.Fatalf("failed to load project: %v", err)
+		}
+
+		_, err = collectReferencedSecrets(dir, project, "")
+		if err == nil {
+			t.Fatal("expected an error when an environment fails to load, got nil")
+		}
+		if !strings.Contains(err.Error(), "broken") {
+			t.Errorf("expected error to mention the broken environment, got: %v", err)
+		}
+	})
 }
 
 // --- Pure function tests ---
-
-func TestParseRunArgs(t *testing.T) {
-	// Save and restore global state
-	saveEnv := envName
-	savePath := projectPath
-	saveDry := dryRun
-	t.Cleanup(func() {
-		envName = saveEnv
-		projectPath = savePath
-		dryRun = saveDry
-	})
-
-	t.Run("flags before separator", func(t *testing.T) {
-		envName = ""
-		projectPath = ""
-		dryRun = false
-
-		args, err := parseRunArgs([]string{"--env", "prod", "--", "echo", "hello"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(args) != 2 || args[0] != "echo" || args[1] != "hello" {
-			t.Errorf("expected [echo hello], got %v", args)
-		}
-		if envName != "prod" {
-			t.Errorf("expected envName=prod, got %q", envName)
-		}
-	})
-
-	t.Run("no separator", func(t *testing.T) {
-		envName = ""
-		args, err := parseRunArgs([]string{"echo", "hello"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(args) != 2 || args[0] != "echo" {
-			t.Errorf("expected [echo hello], got %v", args)
-		}
-	})
-
-	t.Run("dry-run flag", func(t *testing.T) {
-		dryRun = false
-		args, err := parseRunArgs([]string{"--dry-run", "--", "ls"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !dryRun {
-			t.Error("expected dryRun=true")
-		}
-		if len(args) != 1 || args[0] != "ls" {
-			t.Errorf("expected [ls], got %v", args)
-		}
-	})
-
-	t.Run("project flag", func(t *testing.T) {
-		projectPath = ""
-		_, err := parseRunArgs([]string{"-p", "/tmp/proj", "--", "ls"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if projectPath != "/tmp/proj" {
-			t.Errorf("expected projectPath=/tmp/proj, got %q", projectPath)
-		}
-	})
-
-	t.Run("env short flag", func(t *testing.T) {
-		envName = ""
-		_, err := parseRunArgs([]string{"-e", "staging", "--", "ls"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if envName != "staging" {
-			t.Errorf("expected envName=staging, got %q", envName)
-		}
-	})
-}
 
 func TestTrimNewline(t *testing.T) {
 	tests := []struct {
@@ -1031,13 +1047,14 @@ func TestPrintDryRun(t *testing.T) {
 		"DB_HOST":     "localhost",
 		"DB_PASSWORD": "secret",
 	}
+	secretEnvVars := map[string]string{"DB_PASSWORD": "secret"}
 	cmdArgs := []string{"echo", "hello"}
 
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := printDryRun(envVars, cmdArgs)
+	err := printDryRun(envVars, secretEnvVars, cmdArgs)
 
 	_ = w.Close()
 	os.Stdout = oldStdout
@@ -1054,6 +1071,12 @@ func TestPrintDryRun(t *testing.T) {
 	}
 	if !strings.Contains(output, "DB_HOST=localhost") {
 		t.Error("expected DB_HOST in output")
+	}
+	if !strings.Contains(output, "DB_PASSWORD=********") {
+		t.Errorf("expected DB_PASSWORD to be masked, got: %s", output)
+	}
+	if strings.Contains(output, "secret") {
+		t.Errorf("secret value leaked into dry-run output: %s", output)
 	}
 	if !strings.Contains(output, "Command:") {
 		t.Error("expected 'Command:' in output")
@@ -2072,83 +2095,146 @@ database:
 	}
 }
 
-func TestParseRunArgs_ConfigFileFlag(t *testing.T) {
-	saveConfigFile := configFile
-	saveIncludeAll := includeAll
-	saveEnv := envName
-	savePath := projectPath
-	saveDry := dryRun
-	t.Cleanup(func() {
-		configFile = saveConfigFile
-		includeAll = saveIncludeAll
-		envName = saveEnv
-		projectPath = savePath
-		dryRun = saveDry
+func TestEnvVarNameCollisions(t *testing.T) {
+	mock := newMockSecretClient(map[string]string{"api-key": "s3cret"})
+	withMockGCPClient(t, mock)
+
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+environments:
+  dev: {}
+defaults:
+  env: dev
+`,
+		"config/base.yaml": "api:\n  key: ${secret:api-key}\napi-key: plain\n",
 	})
 
-	t.Run("--config-file flag", func(t *testing.T) {
-		configFile = ""
-		_, err := parseRunArgs([]string{"--config-file", "/tmp/out.yaml", "--", "ls"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if configFile != "/tmp/out.yaml" {
-			t.Errorf("expected configFile=/tmp/out.yaml, got %q", configFile)
-		}
-	})
-
-	t.Run("-c short flag", func(t *testing.T) {
-		configFile = ""
-		_, err := parseRunArgs([]string{"-c", "/tmp/out.json", "--", "ls"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if configFile != "/tmp/out.json" {
-			t.Errorf("expected configFile=/tmp/out.json, got %q", configFile)
+	t.Run("run rejects a collision without --all", func(t *testing.T) {
+		_, err := execTestCmd("run", "--dry-run", "-p", dir, "--", "echo")
+		if err == nil || !strings.Contains(err.Error(), "API_KEY") {
+			t.Fatalf("expected collision error naming API_KEY, got %v", err)
 		}
 	})
 
-	t.Run("--all flag", func(t *testing.T) {
-		includeAll = false
-		_, err := parseRunArgs([]string{"--all", "--", "ls"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !includeAll {
-			t.Error("expected includeAll=true")
-		}
-	})
-
-	t.Run("-e missing value", func(t *testing.T) {
-		envName = ""
-		_, err := parseRunArgs([]string{"-e", "--", "ls"})
+	t.Run("validate reports the collision", func(t *testing.T) {
+		output, err := execTestCmd("validate", "-p", dir)
 		if err == nil {
-			t.Fatal("expected error for -e without value")
+			t.Fatalf("expected validate to fail, output: %s", output)
 		}
-		if !strings.Contains(err.Error(), "requires a value") {
-			t.Errorf("unexpected error: %v", err)
+		if !strings.Contains(output, "environment dev") || !strings.Contains(output, "API_KEY") {
+			t.Errorf("expected collision reported for dev, got: %s", output)
+		}
+	})
+}
+
+// TestFileOnlyEnvironment covers a project with no `environments:` block in
+// .coffer.yaml, relying solely on defaults.env plus a matching config/<env>.yaml
+// file (the form config.Load has always accepted, but ProjectConfig.ListEnvironments
+// used to miss - see config.Environments).
+func TestFileOnlyEnvironment(t *testing.T) {
+	newProjectFiles := func() map[string]string {
+		return map[string]string{
+			".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+			"config/base.yaml": "app:\n  name: myapp\n",
+			"config/dev.yaml":  "database:\n  password: ${secret:db-pass}\napi:\n  key: dev\napi-key: plain\n",
+		}
+	}
+
+	t.Run("secret unused does not flag a secret only referenced in the file-only env", func(t *testing.T) {
+		mock := newMockSecretClient(map[string]string{"db-pass": "secret"})
+		withMockGCPClient(t, mock)
+
+		dir := setupTestProject(t, newProjectFiles())
+
+		output, err := execTestCmd("secret", "unused", "--path", dir)
+		if err != nil {
+			t.Fatalf("secret unused failed: %v", err)
+		}
+		if strings.Contains(output, "db-pass") {
+			t.Errorf("db-pass is referenced in config/dev.yaml and must not be reported unused, got: %s", output)
 		}
 	})
 
-	t.Run("-p missing value", func(t *testing.T) {
-		projectPath = ""
-		_, err := parseRunArgs([]string{"-p", "--", "ls"})
+	t.Run("validate reports the collision in the file-only env", func(t *testing.T) {
+		dir := setupTestProject(t, newProjectFiles())
+
+		output, err := execTestCmd("validate", "--path", dir)
 		if err == nil {
-			t.Fatal("expected error for -p without value")
+			t.Fatalf("expected validate to fail, output: %s", output)
 		}
-		if !strings.Contains(err.Error(), "requires a value") {
-			t.Errorf("unexpected error: %v", err)
+		if !strings.Contains(output, "environment dev") || !strings.Contains(output, "API_KEY") {
+			t.Errorf("expected collision reported for dev, got: %s", output)
 		}
+	})
+}
+
+func TestValidateEnvMapping_AcrossEnvironments(t *testing.T) {
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+env_mapping:
+  only.prod: ONLY_PROD
+  only.dev: ONLY_DEV
+  nowhere.key: NOWHERE
+defaults:
+  env: dev
+`,
+		"config/base.yaml": "app:\n  name: x\n",
+		"config/dev.yaml":  "only:\n  dev: d\n",
+		"config/prod.yaml": "only:\n  prod: p\n",
 	})
 
-	t.Run("-c missing value", func(t *testing.T) {
-		configFile = ""
-		_, err := parseRunArgs([]string{"-c", "--", "ls"})
-		if err == nil {
-			t.Fatal("expected error for -c without value")
+	output, err := execTestCmd("validate", "-p", dir)
+	if err != nil {
+		t.Fatalf("validate failed: %v\noutput: %s", err, output)
+	}
+	if !strings.Contains(output, "env_mapping key 'nowhere.key' not found") {
+		t.Errorf("expected warning for nowhere.key, got: %s", output)
+	}
+	for _, key := range []string{"only.prod", "only.dev"} {
+		if strings.Contains(output, "'"+key+"' not found") {
+			t.Errorf("%s exists in one environment and should not be warned about, got: %s", key, output)
 		}
-		if !strings.Contains(err.Error(), "requires a value") {
-			t.Errorf("unexpected error: %v", err)
-		}
+	}
+}
+
+func TestValidate_UndeclaredEnvFileSyntax(t *testing.T) {
+	dir := setupTestProject(t, map[string]string{
+		".coffer.yaml": `
+version: 1
+config:
+  path: ./config
+gcp:
+  project: test-project
+defaults:
+  env: dev
+`,
+		"config/base.yaml": "app:\n  name: x\n",
+		"config/dev.yaml":  "app: [unclosed\n",
 	})
+
+	output, err := execTestCmd("validate", "-p", dir)
+	if err == nil {
+		t.Fatalf("expected validate to fail on broken dev.yaml, output: %s", output)
+	}
+	if !strings.Contains(output, "dev.yaml:") {
+		t.Errorf("expected dev.yaml syntax error reported, got: %s", output)
+	}
 }
