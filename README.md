@@ -98,6 +98,8 @@ services:
 coffer run --env dev -- docker compose up
 ```
 
+These local examples pass env vars only. If the app also reads `/app/config.json`, it won't exist in the container; read settings from env vars in development, or use `--config-file` on the host and mount that file, accepting that it is plaintext on disk.
+
 No Google credential enters the container this way, though the values are still visible to anyone who can run `docker inspect`.
 
 ### Generate config files
@@ -223,7 +225,7 @@ Config keys are automatically converted to environment variables:
 | `api.base-url` | `API_BASE_URL` |
 | `3rd.party` | `_3RD_PARTY` |
 
-Dots and dashes become underscores, a leading digit gets an underscore prefix, and any other character that is not valid in an env var name is dropped. Use `env_mapping` in `.coffer.yaml` to customize variable names.
+Dots and dashes become underscores, a leading digit gets an underscore prefix, other punctuation and symbols (including spaces and `$`) are dropped, and non-ASCII letters and digits are kept, then rejected (see below). Use `env_mapping` in `.coffer.yaml` to customize variable names.
 
 Every resulting name, including `env_mapping` targets, must match `^[A-Za-z_][A-Za-z0-9_]*$`. Coffer stops with an error otherwise: a hyphenated mapping target or a key containing non-ASCII letters (such as `café.name`) is rejected rather than renamed, so give it an ASCII name in `env_mapping`.
 
