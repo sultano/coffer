@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -99,6 +101,34 @@ func TestToEnvVars_CollisionAutoConversion(t *testing.T) {
 	}
 }
 
+func TestToEnvVars_InvalidName(t *testing.T) {
+	tests := []struct {
+		name    string
+		flat    map[string]string
+		mapping map[string]string
+		key     string
+	}{
+		{"mapping target with equals", map[string]string{"db.pass": "x"}, map[string]string{"db.pass": "A=B"}, "db.pass"},
+		{"mapping target with shell chars", map[string]string{"db.pass": "x"}, map[string]string{"db.pass": "X;rm"}, "db.pass"},
+		{"mapping target leading digit", map[string]string{"db.pass": "x"}, map[string]string{"db.pass": "1X"}, "db.pass"},
+		{"mapping target empty", map[string]string{"db.pass": "x"}, map[string]string{"db.pass": ""}, "db.pass"},
+		{"derived name empty", map[string]string{"!!!": "x"}, nil, "!!!"},
+		{"derived name non-ascii letter", map[string]string{"café": "x"}, nil, "café"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ToEnvVars(tt.flat, tt.mapping)
+			if err == nil {
+				t.Fatal("expected error for invalid env var name, got nil")
+			}
+			if !strings.Contains(err.Error(), `"`+tt.key+`"`) {
+				t.Errorf("expected error to name config key %q, got: %s", tt.key, err)
+			}
+		})
+	}
+}
+
 func TestQuoteForDotenv(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -110,6 +140,23 @@ func TestQuoteForDotenv(t *testing.T) {
 		{"with$dollar", "\"with\\$dollar\""},
 		{"with\"quote", "\"with\\\"quote\""},
 		{"with#hash", "\"with#hash\""},
+		{"", ""},
+		{"allowlisted_./:@%+,=-chars", "allowlisted_./:@%+,=-chars"},
+		{"postgres://u:p@h:5432/db", "postgres://u:p@h:5432/db"},
+		{"a;b", "\"a;b\""},
+		{"a&b", "\"a&b\""},
+		{"a|b", "\"a|b\""},
+		{"a<b>c", "\"a<b>c\""},
+		{"(a)", "\"(a)\""},
+		{"a*", "\"a*\""},
+		{"~/x", "\"~/x\""},
+		{"{a,b}", "\"{a,b}\""},
+		{"a!b", "\"a!b\""},
+		{"it's", "\"it's\""},
+		{"a`b`", "\"a\\`b\\`\""},
+		{"tab\there", "\"tab\\there\""},
+		{"back\\slash", "\"back\\\\slash\""},
+		{"café", "\"café\""},
 	}
 
 	for _, tt := range tests {
@@ -117,6 +164,68 @@ func TestQuoteForDotenv(t *testing.T) {
 			result := QuoteForDotenv(tt.input)
 			if result != tt.expected {
 				t.Errorf("QuoteForDotenv(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestQuoteForDotenv_ShellEval feeds output through the eval-and-export
+// pattern people use with `coffer resolve -f dotenv` and checks that no value
+// can run a command, and that the exported value survives unchanged.
+func TestQuoteForDotenv_ShellEval(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+
+	const script = `eval $(printf "%s\n" "$1" | sed "s/^/export /"); printf "%s" "$COFFER_T"`
+
+	tests := []struct {
+		name  string
+		value string
+		// roundTrip is false where the shell pattern itself is lossy: the
+		// dotenv \n and \t escapes are not shell escapes, and the unquoted
+		// $(...) collapses runs of whitespace.
+		roundTrip bool
+	}{
+		{"semicolon redirect", "a;>pwned", true},
+		{"and redirect", "a&&>pwned", true},
+		{"pipe", "a|tee pwned", true},
+		{"subshell", "(touch pwned)", true},
+		{"command substitution", "$(touch pwned)", true},
+		{"backticks", "`touch pwned`", true},
+		{"double quote breakout", `a";touch pwned;"`, true},
+		{"single quotes", `it's 'quoted'`, true},
+		{"backslash", `a\";touch pwned;\`, true},
+		{"bang", "a!b!!", true},
+		{"unicode", "pässwörd-日本", true},
+		{"tilde", "~/x", true},
+		{"glob", "*", true},
+		{"newline", "a\ntouch pwned", false},
+		{"tab", "a\t;touch pwned", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			line := "COFFER_T=" + QuoteForDotenv(tt.value)
+
+			cmd := exec.Command("sh", "-c", script, "sh", line)
+			cmd.Dir = dir
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("sh failed for %q: %v\n%s", line, err, out)
+			}
+
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("eval of %q had side effects: created %s", line, entries[0].Name())
+			}
+
+			if tt.roundTrip && string(out) != tt.value {
+				t.Errorf("eval of %q exported %q, want %q", line, out, tt.value)
 			}
 		})
 	}
