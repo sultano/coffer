@@ -44,7 +44,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	if err := findADC(); err != nil {
 		_, _ = red.Printf("✗ No Application Default Credentials found\n")
 		fmt.Println("  Run: coffer auth login")
-		return nil
+		return &ExitError{Code: 1}
 	}
 	_, _ = green.Printf("✓ Application Default Credentials found\n")
 

@@ -59,7 +59,7 @@ func runInfo(cmd *cobra.Command, args []string) error {
 		if account, err := getGCloudAccount(); err == nil {
 			fmt.Printf("  gcloud CLI account: %s\n", account)
 		}
-		fmt.Println("  Secret Manager access: run 'coffer check' to verify")
+		fmt.Println("  Secret Manager access: run 'coffer check --env <env>' to verify")
 	}
 	fmt.Println()
 

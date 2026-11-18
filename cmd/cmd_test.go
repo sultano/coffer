@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -325,8 +326,9 @@ func TestAuthStatus(t *testing.T) {
 		withFakeADC(t, false)
 
 		output, err := execTestCmd("auth", "status")
-		if err != nil {
-			t.Fatalf("auth status failed: %v", err)
+		var exitErr *ExitError
+		if !errors.As(err, &exitErr) || exitErr.Code != 1 {
+			t.Fatalf("expected silent exit status 1, got: %v", err)
 		}
 		if !strings.Contains(output, "✗ No Application Default Credentials found") {
 			t.Errorf("expected ADC missing, got: %s", output)

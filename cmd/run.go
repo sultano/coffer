@@ -22,8 +22,9 @@ var (
 	includeAll bool
 )
 
-// ExitError carries the child's exit status up to main, so deferred cleanup
-// runs before the process exits.
+// ExitError carries an exit status up to main without printing an error, so
+// deferred cleanup runs before the process exits. run uses it for the child's
+// status; other commands use it after printing their own message.
 type ExitError struct {
 	Code int
 }
