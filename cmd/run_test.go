@@ -208,8 +208,7 @@ func TestExecuteCommand(t *testing.T) {
 					t.Fatalf("expected child to trap %s and exit 7, got %v", sig, err)
 				}
 			case <-time.After(5 * time.Second):
-				<-done
-				t.Fatalf("child did not exit after %s", sig)
+				t.Fatalf("child did not exit after %s (eventually: %v)", sig, <-done)
 			}
 		})
 	}
