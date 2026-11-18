@@ -32,7 +32,7 @@ func ToEnvVars(flat map[string]string, mapping map[string]string) (map[string]st
 	for _, key := range keys {
 		envName := mapToEnvVar(key, mapping)
 		if !validEnvVarName.MatchString(envName) {
-			return nil, fmt.Errorf("config key %q maps to invalid environment variable name %q (must match %s)", key, envName, validEnvVarName)
+			return nil, fmt.Errorf("config key %q maps to invalid environment variable name %q: names must match %s; set an ASCII name for it under env_mapping in %s", key, envName, validEnvVarName, ProjectFileName)
 		}
 		if existing, ok := sourceKey[envName]; ok {
 			a, b := existing, key

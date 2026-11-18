@@ -223,6 +223,8 @@ Config keys are automatically converted to environment variables:
 
 Dots and dashes become underscores, a leading digit gets an underscore prefix, and any other character that is not valid in an env var name is dropped. Use `env_mapping` in `.coffer.yaml` to customize variable names.
 
+Every resulting name, including `env_mapping` targets, must match `^[A-Za-z_][A-Za-z0-9_]*$`. Coffer stops with an error otherwise: a hyphenated mapping target or a key containing non-ASCII letters (such as `café.name`) is rejected rather than renamed, so give it an ASCII name in `env_mapping`.
+
 If two config keys would produce the same variable name, coffer stops with an error naming both keys rather than picking one.
 
 ## Commands

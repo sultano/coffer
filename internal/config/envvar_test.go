@@ -125,6 +125,9 @@ func TestToEnvVars_InvalidName(t *testing.T) {
 			if !strings.Contains(err.Error(), `"`+tt.key+`"`) {
 				t.Errorf("expected error to name config key %q, got: %s", tt.key, err)
 			}
+			if !strings.Contains(err.Error(), "env_mapping") {
+				t.Errorf("expected error to point at env_mapping, got: %s", err)
+			}
 		})
 	}
 }
