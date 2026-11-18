@@ -83,11 +83,13 @@ For local development, don't mount your gcloud credentials into the container. R
 coffer run --env dev -- docker run --rm -e DB_PASSWORD --entrypoint node myapp server.js
 ```
 
-With Docker Compose, list the variables without values so they pass through from the environment coffer sets:
+With Docker Compose, override the image's coffer entrypoint in the same way, and list the variables without values so they pass through from the environment coffer sets:
 
 ```yaml
 services:
   app:
+    image: myapp
+    entrypoint: ["node", "server.js"]
     environment:
       - DB_PASSWORD
 ```
