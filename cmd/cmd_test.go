@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -268,6 +269,8 @@ app:
 `,
 	})
 
+	withFakeADC(t, true)
+
 	output, err := execTestCmd("info", "--path", dir)
 	if err != nil {
 		t.Fatalf("info failed: %v", err)
@@ -283,6 +286,54 @@ app:
 	if !strings.Contains(output, dir) && !strings.Contains(output, "Path") {
 		t.Errorf("info output should contain project path or 'Path', got: %s", output)
 	}
+}
+
+// withFakeADC points ADC lookup at a throwaway credentials file (or a missing
+// one) and hides gcloud, so tests never touch the machine's real credentials.
+func withFakeADC(t *testing.T, present bool) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "adc.json")
+	if present {
+		creds := `{"type":"authorized_user","client_id":"id","client_secret":"secret","refresh_token":"token"}`
+		if err := os.WriteFile(path, []byte(creds), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", path)
+	t.Setenv("PATH", "")
+}
+
+func TestAuthStatus(t *testing.T) {
+	t.Run("credentials found", func(t *testing.T) {
+		withFakeADC(t, true)
+
+		output, err := execTestCmd("auth", "status")
+		if err != nil {
+			t.Fatalf("auth status failed: %v", err)
+		}
+		if !strings.Contains(output, "✓ Application Default Credentials found") {
+			t.Errorf("expected ADC found, got: %s", output)
+		}
+		if !strings.Contains(output, "not verified here") || !strings.Contains(output, "coffer check --env") {
+			t.Errorf("expected pointer to coffer check, got: %s", output)
+		}
+		if strings.Contains(output, "granted") {
+			t.Errorf("auth status must not claim access it did not test, got: %s", output)
+		}
+	})
+
+	t.Run("credentials missing", func(t *testing.T) {
+		withFakeADC(t, false)
+
+		output, err := execTestCmd("auth", "status")
+		var exitErr *ExitError
+		if !errors.As(err, &exitErr) || exitErr.Code != 1 {
+			t.Fatalf("expected silent exit status 1, got: %v", err)
+		}
+		if !strings.Contains(output, "✗ No Application Default Credentials found") {
+			t.Errorf("expected ADC missing, got: %s", output)
+		}
+	})
 }
 
 func TestInitCommand(t *testing.T) {
@@ -742,27 +793,6 @@ func TestEnvKeyToSecretName(t *testing.T) {
 			result := envKeyToSecretName(tt.input)
 			if result != tt.expected {
 				t.Errorf("envKeyToSecretName(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestMaskValue(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"ab", "****"},
-		{"abcd", "****"},
-		{"abcde", "ab****de"},
-		{"supersecret", "su****et"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := maskValue(tt.input)
-			if result != tt.expected {
-				t.Errorf("maskValue(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -1599,6 +1629,9 @@ defaults:
 		if !strings.Contains(output, "run with --yes") {
 			t.Errorf("expected --yes prompt, got: %s", output)
 		}
+		if !strings.Contains(output, "DB_PASSWORD = ********\n") || !strings.Contains(output, "API_KEY = ********\n") {
+			t.Errorf("expected fully masked values, got: %s", output)
+		}
 		// Secrets should not be imported
 		if len(mock.secrets) != 0 {
 			t.Error("secrets should not be imported without --yes")
@@ -1634,6 +1667,9 @@ defaults:
 		}
 		if !strings.Contains(output, "Imported") {
 			t.Errorf("expected import success messages, got: %s", output)
+		}
+		if !strings.Contains(output, envFile+" holds these secrets in plaintext") {
+			t.Errorf("expected hint to delete the source file, got: %s", output)
 		}
 		if mock.secrets["db-password"] != "secret123" {
 			t.Errorf("expected db-password=secret123, got: %q", mock.secrets["db-password"])

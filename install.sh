@@ -95,7 +95,7 @@ download() {
 verify_checksum() {
     dir="$1"
     file="$2"
-    expected="$(grep "${file}" "${dir}/checksums.txt" | awk '{print $1}')"
+    expected="$(awk -v f="$file" '$2==f{print $1}' "${dir}/checksums.txt")"
 
     if [ -z "$expected" ]; then
         echo "Error: checksum not found for ${file}" >&2
@@ -107,8 +107,8 @@ verify_checksum() {
     elif command -v shasum >/dev/null 2>&1; then
         actual="$(shasum -a 256 "${dir}/${file}" | awk '{print $1}')"
     else
-        echo "Warning: no SHA-256 tool found, skipping checksum verification" >&2
-        return 0
+        echo "Error: sha256sum or shasum is required to verify the download" >&2
+        exit 1
     fi
 
     if [ "$expected" != "$actual" ]; then

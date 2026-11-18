@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"time"
 
-	"cloud.google.com/go/secretmanager/apiv1"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"golang.org/x/oauth2/google"
 )
 
 var authCmd = &cobra.Command{
@@ -19,7 +18,7 @@ var authCmd = &cobra.Command{
 
 var authStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Check GCP authentication status",
+	Short: "Check that Application Default Credentials are present",
 	RunE:  runAuthStatus,
 }
 
@@ -42,36 +41,31 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println("Checking GCP authentication...")
 	fmt.Println()
 
-	// Check gcloud account
-	account, err := getGCloudAccount()
-	if err != nil {
-		_, _ = red.Printf("✗ Not authenticated to gcloud\n")
-		fmt.Println("  Run: gcloud auth application-default login")
-		return nil
+	if err := findADC(); err != nil {
+		_, _ = red.Printf("✗ No Application Default Credentials found\n")
+		fmt.Println("  Run: coffer auth login")
+		return &ExitError{Code: 1}
 	}
-	_, _ = green.Printf("✓ Authenticated as: %s\n", account)
+	_, _ = green.Printf("✓ Application Default Credentials found\n")
 
-	// Check project
-	project, err := getGCloudProject()
-	if err == nil && project != "" {
-		_, _ = green.Printf("✓ GCP Project: %s\n", project)
+	// The gcloud CLI login is separate from ADC and may be a different identity.
+	if account, err := getGCloudAccount(); err == nil {
+		fmt.Printf("  gcloud CLI account: %s\n", account)
 	}
 
-	// Check Secret Manager access
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	client, err := secretmanager.NewClient(ctx)
-	if err != nil {
-		_, _ = red.Printf("✗ Secret Manager access: failed to create client\n")
-		fmt.Printf("  Error: %v\n", err)
-		return nil
-	}
-	defer func() { _ = client.Close() }()
-
-	_, _ = green.Printf("✓ Secret Manager access: granted\n")
+	fmt.Println()
+	fmt.Println("Secret Manager access is not verified here. Run: coffer check --env <env>")
 
 	return nil
+}
+
+// findADC reports whether Application Default Credentials can be found,
+// without using them to call any API.
+func findADC() error {
+	ctx, cancel := context.WithTimeout(context.Background(), QuickGCPTimeout)
+	defer cancel()
+	_, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	return err
 }
 
 func runAuthLogin(cmd *cobra.Command, args []string) error {
@@ -91,7 +85,7 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	color.Green("✓ Authentication complete")
 	fmt.Println()
-	fmt.Println("Run 'coffer auth status' to verify access")
+	fmt.Println("Run 'coffer check --env <env>' to verify Secret Manager access")
 
 	return nil
 }

@@ -2,14 +2,21 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
 )
 
+// BEHAVIOR: every emitted name must be a valid POSIX identifier. env_mapping
+// targets are user input, and a name like "A=B" or "X;rm" breaks dotenv parsing
+// and the shell, so it is rejected rather than passed through.
+var validEnvVarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // ToEnvVars converts flattened config to environment variables
 // using explicit mappings from env_mapping, falling back to auto-convention.
-// Returns an error if two distinct config keys map to the same env var name.
+// Returns an error if a resulting name is not a valid environment variable name,
+// or if two distinct config keys map to the same env var name.
 func ToEnvVars(flat map[string]string, mapping map[string]string) (map[string]string, error) {
 	result := make(map[string]string, len(flat))
 	sourceKey := make(map[string]string, len(flat)) // envName -> config key that produced it
@@ -24,6 +31,9 @@ func ToEnvVars(flat map[string]string, mapping map[string]string) (map[string]st
 
 	for _, key := range keys {
 		envName := mapToEnvVar(key, mapping)
+		if !validEnvVarName.MatchString(envName) {
+			return nil, fmt.Errorf("config key %q maps to invalid environment variable name %q: names must match %s; set an ASCII name for it under env_mapping in %s", key, envName, validEnvVarName, ProjectFileName)
+		}
 		if existing, ok := sourceKey[envName]; ok {
 			a, b := existing, key
 			if a > b {
@@ -99,17 +109,13 @@ func FormatAsDotenv(envVars map[string]string) string {
 	return sb.String()
 }
 
-// QuoteForDotenv wraps value in quotes if it contains special characters
+// QuoteForDotenv wraps value in double quotes unless every character is in a
+// small allowlist that is inert to both dotenv parsers and POSIX shells.
 func QuoteForDotenv(value string) string {
-	needsQuotes := false
-	for _, r := range value {
-		if r == ' ' || r == '\n' || r == '\t' || r == '"' || r == '\'' || r == '$' || r == '`' || r == '\\' || r == '#' {
-			needsQuotes = true
-			break
-		}
-	}
-
-	if !needsQuotes {
+	// BEHAVIOR: quote on anything outside the allowlist, never on a denylist.
+	// Output may be eval'd by a shell, so an unquoted ; & | < > ( ) etc. would
+	// run commands; a denylist silently misses characters like these.
+	if strings.IndexFunc(value, func(r rune) bool { return !isDotenvSafe(r) }) == -1 {
 		return value
 	}
 
@@ -136,4 +142,9 @@ func QuoteForDotenv(value string) string {
 	}
 	sb.WriteRune('"')
 	return sb.String()
+}
+
+func isDotenvSafe(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+		strings.ContainsRune("_./:@%+,=-", r)
 }

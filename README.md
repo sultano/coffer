@@ -71,34 +71,48 @@ ENTRYPOINT ["coffer", "run", "--config-file", "/app/config.json", "--"]
 CMD ["node", "server.js"]
 ```
 
-Set the environment using `COFFER_ENV`, `defaults.env` in `.coffer.yaml`, or override the entrypoint to pass `--env`:
+Set the environment using `COFFER_ENV`, `defaults.env` in `.coffer.yaml`, or override the entrypoint to pass `--env`. In production the container gets Google credentials from the platform, such as the service account attached to a Cloud Run service or GKE Workload Identity:
 
 ```bash
-# Dev — with local credentials mounted
-docker run -e COFFER_ENV=dev \
-  -v ~/.config/gcloud:/root/.config/gcloud \
-  myapp
-
-# Prod — with workload identity or service account key
 docker run -e COFFER_ENV=prod myapp
 ```
 
+For local development, don't mount your gcloud credentials into the container. Run coffer on the host and pass in only the variables the app needs, bypassing the image's coffer entrypoint:
+
+```bash
+coffer run --env dev -- docker run --rm -e DB_PASSWORD --entrypoint node myapp server.js
+```
+
+With Docker Compose, override the image's coffer entrypoint in the same way, and list the variables without values so they pass through from the environment coffer sets:
+
+```yaml
+services:
+  app:
+    image: myapp
+    entrypoint: ["node", "server.js"]
+    environment:
+      - DB_PASSWORD
+```
+
+```bash
+coffer run --env dev -- docker compose up
+```
+
+These local examples pass env vars only. If the app also reads `/app/config.json`, it won't exist in the container; read settings from env vars in development, or use `--config-file` on the host and mount that file, accepting that it is plaintext on disk.
+
+No Google credential enters the container this way, though the values are still visible to anyone who can run `docker inspect`.
+
 ### Generate config files
 
-Write resolved config to a file for your app or tools like Docker Compose:
+Prefer `coffer run`, which keeps secrets off disk. If a tool genuinely needs a file, `coffer resolve` can write one:
 
 ```bash
-coffer resolve --env prod -f dotenv > .env
-coffer resolve --env prod -f json > config.json
-coffer resolve --env prod -f yaml > config.yaml
-docker compose up
+coffer resolve --env dev -f dotenv > .env
+coffer resolve --env dev -f json > config.json
+coffer resolve --env dev -f yaml > config.yaml
 ```
 
-### Shell export
-
-```bash
-eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
-```
+These files hold secrets in plaintext: keep them out of git (add them to `.gitignore`) and delete them when you are done. `coffer run --config-file` writes its file with mode 0600, but it also stays on disk after the command exits.
 
 ## Command Reference
 
@@ -117,7 +131,7 @@ eval $(coffer resolve -f dotenv --env prod | sed 's/^/export /')
 | `coffer secret delete <name>` | Delete a secret |
 | `coffer secret unused` | Find unreferenced secrets |
 | `coffer secret import <file>` | Import secrets from a .env file |
-| `coffer auth status` | Check GCP authentication status |
+| `coffer auth status` | Check that Application Default Credentials are present |
 | `coffer auth login` | Authenticate to GCP |
 | `coffer version` | Print version information (also `coffer --version`) |
 
@@ -211,7 +225,9 @@ Config keys are automatically converted to environment variables:
 | `api.base-url` | `API_BASE_URL` |
 | `3rd.party` | `_3RD_PARTY` |
 
-Dots and dashes become underscores, a leading digit gets an underscore prefix, and any other character that is not valid in an env var name is dropped. Use `env_mapping` in `.coffer.yaml` to customize variable names.
+Dots and dashes become underscores, a leading digit gets an underscore prefix, other punctuation and symbols (including spaces and `$`) are dropped, and non-ASCII letters and digits are kept, then rejected (see below). Use `env_mapping` in `.coffer.yaml` to customize variable names.
+
+Every resulting name, including `env_mapping` targets, must match `^[A-Za-z_][A-Za-z0-9_]*$`. Coffer stops with an error otherwise: a hyphenated mapping target or a key containing non-ASCII letters (such as `café.name`) is rejected rather than renamed, so give it an ASCII name in `env_mapping`.
 
 If two config keys would produce the same variable name, coffer stops with an error naming both keys rather than picking one.
 
@@ -244,7 +260,7 @@ coffer run --config-file config.json -- node server.js
 coffer run --config-file config.yaml -- ./app
 ```
 
-The file format is determined by the extension (`.json` or `.yaml`/`.yml`).
+The file format is determined by the extension (`.json` or `.yaml`/`.yml`). The file is written with mode 0600 and is not deleted when the command exits.
 
 ### coffer resolve
 
@@ -312,16 +328,18 @@ coffer secret import .env         # Preview what would be imported
 coffer secret import .env --yes   # Import all secrets
 ```
 
-Keys are converted: `DB_PASSWORD` becomes `db-password`.
+Keys are converted: `DB_PASSWORD` becomes `db-password`. The preview masks every value. After a successful import, delete the source file: it still holds the secrets in plaintext.
 
 ### coffer auth
 
 Manage GCP authentication:
 
 ```bash
-coffer auth status   # Check authentication status
+coffer auth status   # Check that Application Default Credentials are present
 coffer auth login    # Authenticate to GCP (wraps gcloud)
 ```
+
+`auth status` does not test access to Secret Manager; run `coffer check --env <env>` for that.
 
 ## Authentication
 
@@ -332,10 +350,9 @@ Coffer uses Google Cloud Application Default Credentials (ADC):
 gcloud auth application-default login
 # or
 coffer auth login
-
-# For CI/CD, use a service account
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 ```
+
+In CI, avoid service account key files. See [CI/CD](#cicd) for keyless authentication from GitHub Actions.
 
 Required IAM roles:
 - `roles/secretmanager.secretAccessor` - Read secrets
@@ -343,14 +360,63 @@ Required IAM roles:
 
 ## CI/CD
 
-```yaml
-# GitHub Actions example
-- name: Check secrets exist
-  run: coffer check --env prod
+In GitHub Actions, use Workload Identity Federation through [`google-github-actions/auth`](https://github.com/google-github-actions/auth) instead of a service account key. The job needs `id-token: write`, and the action sets `GOOGLE_APPLICATION_CREDENTIALS`, which coffer picks up as ADC:
 
-- name: Deploy with secrets
-  run: coffer run --env prod -- ./deploy.sh
+```yaml
+permissions:
+  contents: read
+  id-token: write
+
+steps:
+  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+  - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+    with:
+      workload_identity_provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/my-repo
+      service_account: deployer@my-gcp-project-prod.iam.gserviceaccount.com
+
+  - name: Check secrets exist
+    run: coffer check --env prod
+
+  - name: Deploy with secrets
+    run: coffer run --env prod -- ./deploy.sh
 ```
+
+Keep the checkout step before the auth step; otherwise later steps cannot authenticate.
+
+## Security
+
+Coffer keeps secrets out of your repository and in one place you control: access is granted per person or service account in IAM, revoking it takes effect everywhere at once, and Secret Manager can log every read.
+
+It does not protect secrets from anything that runs as you:
+
+- Malware, a compromised dependency or a coding agent with shell access can run coffer, or use your credentials directly, and fetch every secret you can.
+- `coffer get`, `coffer resolve` and `coffer secret get` print plaintext, which can end up in terminal scrollback, CI logs and an AI agent's context.
+- `coffer run` puts secrets in the child's environment, which other processes running as the same user can read and which every process the child starts inherits.
+
+Recommendations:
+
+- **Turn on audit logs.** Secret Manager Data Access audit logs are off by default, so reads are not recorded until you enable "Data Read" for the Secret Manager API: in the console under IAM & Admin > Audit Logs, with an `auditConfigs` entry in the project's IAM policy, or in Terraform with `google_project_iam_audit_config`. Cloud Logging bills for these logs.
+
+  ```hcl
+  resource "google_project_iam_audit_config" "secretmanager" {
+    project = "my-gcp-project-prod"
+    service = "secretmanager.googleapis.com"
+    audit_log_config {
+      log_type = "DATA_READ"
+    }
+  }
+  ```
+
+- **Use a separate GCP project per environment**, and don't grant `roles/secretmanager.secretAccessor` on production to laptops. An environment without its own `gcp.project` falls back to the top-level `gcp.project`, so a missing entry silently points at that project.
+- **Narrow your local identity if you need to.** `gcloud auth application-default login --impersonate-service-account=SA_EMAIL` makes coffer act as that service account. The ADC file still contains your own user refresh token, so this limits what coffer uses, not what a process that reads the file can do.
+- **Verify downloads.** Release archives carry GitHub build provenance attestations (releases built before they were added have none):
+
+  ```bash
+  gh attestation verify coffer_<version>_<os>_<arch>.tar.gz --repo sultano/coffer
+  ```
+
+  The install script only compares the archive with `checksums.txt` from the same release, and Homebrew does not check attestations. The Homebrew cask also removes the macOS quarantine flag, because the binaries are not notarised by Apple.
 
 ## Development
 
