@@ -268,6 +268,8 @@ app:
 `,
 	})
 
+	withFakeADC(t, true)
+
 	output, err := execTestCmd("info", "--path", dir)
 	if err != nil {
 		t.Fatalf("info failed: %v", err)
@@ -283,6 +285,53 @@ app:
 	if !strings.Contains(output, dir) && !strings.Contains(output, "Path") {
 		t.Errorf("info output should contain project path or 'Path', got: %s", output)
 	}
+}
+
+// withFakeADC points ADC lookup at a throwaway credentials file (or a missing
+// one) and hides gcloud, so tests never touch the machine's real credentials.
+func withFakeADC(t *testing.T, present bool) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "adc.json")
+	if present {
+		creds := `{"type":"authorized_user","client_id":"id","client_secret":"secret","refresh_token":"token"}`
+		if err := os.WriteFile(path, []byte(creds), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", path)
+	t.Setenv("PATH", "")
+}
+
+func TestAuthStatus(t *testing.T) {
+	t.Run("credentials found", func(t *testing.T) {
+		withFakeADC(t, true)
+
+		output, err := execTestCmd("auth", "status")
+		if err != nil {
+			t.Fatalf("auth status failed: %v", err)
+		}
+		if !strings.Contains(output, "✓ Application Default Credentials found") {
+			t.Errorf("expected ADC found, got: %s", output)
+		}
+		if !strings.Contains(output, "not verified here") || !strings.Contains(output, "coffer check --env") {
+			t.Errorf("expected pointer to coffer check, got: %s", output)
+		}
+		if strings.Contains(output, "granted") {
+			t.Errorf("auth status must not claim access it did not test, got: %s", output)
+		}
+	})
+
+	t.Run("credentials missing", func(t *testing.T) {
+		withFakeADC(t, false)
+
+		output, err := execTestCmd("auth", "status")
+		if err != nil {
+			t.Fatalf("auth status failed: %v", err)
+		}
+		if !strings.Contains(output, "✗ No Application Default Credentials found") {
+			t.Errorf("expected ADC missing, got: %s", output)
+		}
+	})
 }
 
 func TestInitCommand(t *testing.T) {

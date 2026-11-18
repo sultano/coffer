@@ -51,21 +51,15 @@ func runInfo(cmd *cobra.Command, args []string) error {
 
 	// Authentication
 	_, _ = bold.Println("Authentication")
-	account, err := getGCloudAccount()
-	if err != nil {
-		_, _ = red.Printf("  GCP: not authenticated\n")
-		fmt.Println("  Run: gcloud auth application-default login")
+	if err := findADC(); err != nil {
+		_, _ = red.Printf("  Application Default Credentials: not found\n")
+		fmt.Println("  Run: coffer auth login")
 	} else {
-		_, _ = green.Printf("  GCP: %s\n", account)
-
-		// Check Secret Manager access with quick timeout
-		gcpResult, _, gcpErr := newGCPClient(QuickGCPTimeout)
-		if gcpErr != nil {
-			_, _ = yellow.Printf("  Secret Manager: connection failed\n")
-		} else {
-			_, _ = green.Printf("  Secret Manager: accessible\n")
-			gcpResult.Close()
+		_, _ = green.Printf("  Application Default Credentials: found\n")
+		if account, err := getGCloudAccount(); err == nil {
+			fmt.Printf("  gcloud CLI account: %s\n", account)
 		}
+		fmt.Println("  Secret Manager access: run 'coffer check' to verify")
 	}
 	fmt.Println()
 
