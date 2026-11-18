@@ -167,16 +167,22 @@ func writeConfigFile(loaded *config.LoadedConfig, path string) error {
 	return writePrivateFile(path, data)
 }
 
-// writePrivateFile writes data to path readable only by the owner.
+// writePrivateFile writes data to path readable only by the owner. It rewrites
+// the file in place rather than via rename, so a bind-mounted target keeps working.
 func writePrivateFile(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
 		return err
 	}
-	// BEHAVIOR: chmod even when the file already existed. The open mode only
-	// applies on create, so overwriting a 0644 file would leave secrets
-	// world-readable.
+	// BEHAVIOR: chmod even when the file already existed, and before truncating.
+	// The open mode only applies on create, so overwriting a 0644 file would
+	// leave secrets world-readable; truncating first would destroy the old
+	// contents if the chmod then failed.
 	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Truncate(0); err != nil {
 		_ = f.Close()
 		return err
 	}
