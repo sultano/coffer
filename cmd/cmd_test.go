@@ -747,27 +747,6 @@ func TestEnvKeyToSecretName(t *testing.T) {
 	}
 }
 
-func TestMaskValue(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"ab", "****"},
-		{"abcd", "****"},
-		{"abcde", "ab****de"},
-		{"supersecret", "su****et"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := maskValue(tt.input)
-			if result != tt.expected {
-				t.Errorf("maskValue(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestCollectReferencedSecrets(t *testing.T) {
 	t.Run("collects secrets from all environments", func(t *testing.T) {
 		dir := setupTestProject(t, map[string]string{
@@ -1599,6 +1578,9 @@ defaults:
 		if !strings.Contains(output, "run with --yes") {
 			t.Errorf("expected --yes prompt, got: %s", output)
 		}
+		if !strings.Contains(output, "DB_PASSWORD = ********\n") || !strings.Contains(output, "API_KEY = ********\n") {
+			t.Errorf("expected fully masked values, got: %s", output)
+		}
 		// Secrets should not be imported
 		if len(mock.secrets) != 0 {
 			t.Error("secrets should not be imported without --yes")
@@ -1634,6 +1616,9 @@ defaults:
 		}
 		if !strings.Contains(output, "Imported") {
 			t.Errorf("expected import success messages, got: %s", output)
+		}
+		if !strings.Contains(output, envFile+" holds these secrets in plaintext") {
+			t.Errorf("expected hint to delete the source file, got: %s", output)
 		}
 		if mock.secrets["db-password"] != "secret123" {
 			t.Errorf("expected db-password=secret123, got: %q", mock.secrets["db-password"])

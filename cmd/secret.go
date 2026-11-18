@@ -547,8 +547,7 @@ func runSecretImport(cmd *cobra.Command, args []string) error {
 			fullName = secretPrefix + secretName
 		}
 
-		maskedValue := maskValue(entry.value)
-		fmt.Printf("  %s = %s\n", entry.key, maskedValue)
+		fmt.Printf("  %s = %s\n", entry.key, secretMask)
 		fmt.Printf("    -> %s\n", fullName)
 	}
 
@@ -589,6 +588,7 @@ func runSecretImport(cmd *cobra.Command, args []string) error {
 	}
 
 	color.Green("Successfully imported %d secret(s)", imported)
+	fmt.Printf("%s holds these secrets in plaintext; delete it once you no longer need it.\n", envFile)
 	return nil
 }
 
@@ -649,11 +649,4 @@ func envKeyToSecretName(key string) string {
 	name := strings.ToLower(key)
 	name = strings.ReplaceAll(name, "_", "-")
 	return name
-}
-
-func maskValue(value string) string {
-	if len(value) <= 4 {
-		return "****"
-	}
-	return value[:2] + "****" + value[len(value)-2:]
 }

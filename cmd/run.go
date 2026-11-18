@@ -163,7 +163,27 @@ func writeConfigFile(loaded *config.LoadedConfig, path string) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0600)
+	return writePrivateFile(path, data)
+}
+
+// writePrivateFile writes data to path readable only by the owner.
+func writePrivateFile(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	// BEHAVIOR: chmod even when the file already existed. The open mode only
+	// applies on create, so overwriting a 0644 file would leave secrets
+	// world-readable.
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func formatFromPath(path string) (string, error) {
@@ -205,7 +225,7 @@ func printDryRun(envVars, secretEnvVars map[string]string, cmdArgs []string) err
 		// prints short secrets in full.
 		display := envVars[k]
 		if _, isSecret := secretEnvVars[k]; isSecret {
-			display = "********"
+			display = secretMask
 		}
 		fmt.Printf("  %s=%s\n", k, display)
 	}

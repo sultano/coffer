@@ -18,6 +18,10 @@ const (
 	LongGCPTimeout    = 120 * time.Second
 )
 
+// secretMask replaces secret values in previews. It is fixed-length so it
+// reveals neither content nor length.
+const secretMask = "********"
+
 // GCPClientResult holds a GCP client and its cleanup function
 type GCPClientResult struct {
 	Client secrets.Client

@@ -225,3 +225,29 @@ func waitForFile(t *testing.T, path string) {
 	}
 	t.Fatalf("timed out waiting for %s", path)
 }
+
+func TestWritePrivateFile_TightensExistingPermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("old contents that are longer"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writePrivateFile(path, []byte("new")); err != nil {
+		t.Fatalf("writePrivateFile failed: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0600 {
+		t.Errorf("expected mode 0600, got %o", perm)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Errorf("expected file truncated and rewritten, got %q", got)
+	}
+}
